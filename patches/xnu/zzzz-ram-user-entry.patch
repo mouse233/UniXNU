@@ -1,0 +1,43 @@
+--- a/bsd/kern/bsd_init.c
++++ b/bsd/kern/bsd_init.c
+@@ -1062,7 +1062,11 @@
+ 	init_rootvnode = NULLVP;  /* use rootvnode after this point */
+ 
+ #if defined(XNU_RAM_ROOT_PROBE) && XNU_RAM_ROOT_PROBE
++#if defined(XNU_RAM_USER_ENTRY) && XNU_RAM_USER_ENTRY
++	extern void fuxi_ram_root_probe_after_mount(dev_t, vnode_t);
++#else
+ 	extern void fuxi_ram_root_probe_after_mount(dev_t, vnode_t) __attribute__((noreturn));
++#endif
+ 	fuxi_ram_root_probe_after_mount(rootdev, rootvnode);
+ #endif
+ 
+--- a/bsd/kern/kern_exec.c
++++ b/bsd/kern/kern_exec.c
+@@ -7421,7 +7421,12 @@
+ 	 */
+ 	set_security_token(p, proc_ucred_unsafe(p));
+ 
+-	return execve(p, &init_exec_args, retval);
++	error = execve(p, &init_exec_args, retval);
++#if defined(XNU_RAM_USER_ENTRY) && XNU_RAM_USER_ENTRY
++	extern void fuxi_ram_user_exec_result(int, const char *, int);
++	fuxi_ram_user_exec_result(error, path, proc_getpid(p));
++#endif
++	return error;
+ }
+ 
+ static const char * init_programs[] = {
+--- a/osfmk/arm64/sleh.c
++++ b/osfmk/arm64/sleh.c
+@@ -764,6 +764,10 @@
+ 			panic("Invalid SVC_64 context");
+ 		}
+ 
++#if defined(XNU_RAM_USER_ENTRY) && XNU_RAM_USER_ENTRY
++		extern void fuxi_ram_user_svc(uint64_t, uint32_t, uint32_t, uint64_t) __attribute__((noreturn));
++		fuxi_ram_user_svc(get_saved_state_pc(state), get_saved_state_cpsr(state), esr, get_saved_state_reg(state, 16));
++#endif
+ 		handle_svc(state);
+ 		break;
+ 

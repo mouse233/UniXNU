@@ -14,7 +14,10 @@ parser.add_argument('--component', choices=('systemos', 'os'), default='systemos
 parser.add_argument('--negative-volume-uuid', action='store_true', help='Isolated real-signature policy with the wrong signed volume identity')
 parser.add_argument('--include-systemos', action='store_true', help='Include both separately verified original OS and SystemOS policies under the same explicit anchor')
 parser.add_argument('--duplicate-os-policy', action='store_true', help='Isolated negative bundle with an ambiguous duplicate OS policy')
+parser.add_argument('--single-policy-table', action='store_true', help='Export a one-entry policy table for the native UFS transport')
 args = parser.parse_args()
+if args.single_policy_table and (args.include_systemos or args.duplicate_os_policy):
+    parser.error('The single policy table cannot be combined with a multi-volume bundle')
 if args.include_systemos and (args.component != 'os' or args.negative_volume_uuid):
     parser.error('The two-volume bundle requires the positive original OS policy')
 if args.duplicate_os_policy and not args.include_systemos:
@@ -94,6 +97,15 @@ _verified_root_samples:
 .incbin "''' + str(samples) + '"\n')
 policy_records = [dict(manifest_sha256=hashlib.sha256(manifest.read_bytes()).hexdigest(),
                        image_bytes=struct.unpack_from('<Q', manifest.read_bytes(), 24)[0])]
+if args.single_policy_table:
+    with assembly.open('a') as stream:
+        stream.write('''.balign 8
+.globl _verified_root_policies, _verified_root_policy_count
+_verified_root_policies:
+.quad _verified_root_manifest, ''' + str(manifest.stat().st_size) + '''
+_verified_root_policy_count:
+.quad 1
+''')
 if args.include_systemos:
     extra_dir = ROOT / 'build/verified-root-systemos'
     extra_meta = json.loads((extra_dir / 'verification.json').read_text())
@@ -168,6 +180,7 @@ subprocess.run(['xcrun', 'ar', 'rcs', archive, *objects], check=True)
     actual_sample_indices=indices, actual_sample_lengths=lengths, sample_sha256=hashlib.sha256(samples.read_bytes()).hexdigest(),
     negative_volume_uuid=args.negative_volume_uuid,
     policy_bundle=args.include_systemos, duplicate_os_policy=args.duplicate_os_policy,
+    single_policy_table=args.single_policy_table,
     policy_records=policy_records,
     signed_volume_uuid=str(uuid.UUID(bytes=manifest.read_bytes()[40:56])).upper(),
     original_manifest_sha256=original_manifest_sha256,

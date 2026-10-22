@@ -1,0 +1,36 @@
+--- a/bsd/kern/bsd_init.c
++++ b/bsd/kern/bsd_init.c
+@@ -1009,6 +1009,10 @@
+ 
+ 		bsd_init_kprintf("calling setconf\n");
+ 		setconf();
++#if defined(XNU_RAM_ROOT_PROBE) && XNU_RAM_ROOT_PROBE
++		extern void fuxi_ram_root_probe_before_mount(dev_t);
++		fuxi_ram_root_probe_before_mount(rootdev);
++#endif
+ #if CONFIG_NETBOOT
+ 		netboot = (mountroot == netboot_mountroot);
+ #endif
+@@ -1019,6 +1023,10 @@
+ 			boot_progress_stage("vfs_mountroot mounted; authentication pending");
+ 			break;
+ 		}
++#if defined(XNU_RAM_ROOT_PROBE) && XNU_RAM_ROOT_PROBE
++		extern void fuxi_ram_root_probe_mount_failed(int) __attribute__((noreturn));
++		fuxi_ram_root_probe_mount_failed(err);
++#endif
+ 		rootdevice[0] = '\0';
+ #if CONFIG_NETBOOT
+ 		if (netboot) {
+@@ -1052,6 +1060,11 @@
+ 	set_rootvnode(init_rootvnode);
+ 	lck_rw_unlock_exclusive(&rootvnode_rw_lock);
+ 	init_rootvnode = NULLVP;  /* use rootvnode after this point */
++
++#if defined(XNU_RAM_ROOT_PROBE) && XNU_RAM_ROOT_PROBE
++	extern void fuxi_ram_root_probe_after_mount(dev_t, vnode_t) __attribute__((noreturn));
++	fuxi_ram_root_probe_after_mount(rootdev, rootvnode);
++#endif
+ 
+ 
+ 	if (!bsd_rooted_ramdisk()) {

@@ -33,9 +33,10 @@ if [ ! -x .cache/fakeroot/usr/local/libexec/availability.pl ]; then
 fi
 # The optional observation hooks overlap existing root/exec patch context.
 # Remove them first so earlier independent patches retain their idempotent checks.
-# The same holds for the boot-time GPU addon mount and the staged system apps copy (zzy), which edit the owner Data mount function
-# inside the systemos patch. Reverse newest first; the loop below re-applies them in name order.
-for LATE_PATCH in "$ROOT/patches/xnu/zzz-boot-progress.patch" "$ROOT/patches/xnu/zzy-staged-system-apps.patch" \
+# Root diagnostics, GPU addon mounts and staged system apps overlap earlier patch context.
+# Reverse newest first; the loop below re-applies them in name order.
+for LATE_PATCH in "$ROOT/patches/xnu/zzzz-ram-user-entry.patch" "$ROOT/patches/xnu/zzz-ram-root-probe.patch" \
+    "$ROOT/patches/xnu/zzz-boot-progress.patch" "$ROOT/patches/xnu/zzy-staged-system-apps.patch" \
     "$ROOT/patches/xnu/zzy-native-gpu-addon-mount.patch"; do
   if git -C .cache/xnu-work apply --reverse --check "$LATE_PATCH" >/dev/null 2>&1; then
     git -C .cache/xnu-work apply --reverse "$LATE_PATCH"
@@ -64,8 +65,15 @@ fi
 if [ "$BOOT_PROGRESS" = 1 ]; then
   if [ "${XNU_NATIVE_UFS:-0}" != 1 ] || [ "${XNU_OWNER_ROOT_AUDIT:-0}" != 1 ] || \
      [ "${XNU_NATIVE_VIRTIO_BLOCK:-0}" != 1 ] || [ "${XNU_SOURCE_CORECRYPTO14:-0}" != 1 ]; then
-    echo 'Boot progress requires the audited UFS/owner-root, Virtio and source-corecrypto build' >&2
-    exit 1
+    if [ "${XNU_BOOT_PROGRESS_UNQUALIFIED:-0}" != 1 ]; then
+      echo 'Boot progress requires the audited UFS/owner-root, Virtio and source-corecrypto build' >&2
+      exit 1
+    fi
+    # Opt-in override for a first bring-up kernel whose only console is boot
+    # progress: the diagnostic itself needs none of that set (it includes only
+    # kernel headers), but it was qualified with it. Set
+    # XNU_BOOT_PROGRESS_UNQUALIFIED=1 to accept the weaker baseline knowingly.
+    echo 'WARNING: building boot progress without the audited UFS/owner-root, Virtio and source-corecrypto set' >&2
   fi
   python3 scripts/build-boot-progress.py
 fi
@@ -119,6 +127,11 @@ if [ ! -f "$KERNEL_SDKROOT/.xnu-$XNU_VERSION-headers" ]; then
     SYMROOT="$ROOT/build/xnu/sym" DSTROOT="$KERNEL_SDKROOT"
   touch "$KERNEL_SDKROOT/.xnu-$XNU_VERSION-headers"
 fi
+# installhdrs exports libsa into the macOS object tree. The iOS compile
+# records are also reused by strict archive builders, which need that include
+# directory even before the iOS build exports its own headers.
+mkdir -p "$ROOT/build/xnu/ios-obj/EXPORT_HDRS/libsa"
+ditto "$ROOT/build/xnu/obj/EXPORT_HDRS/libsa" "$ROOT/build/xnu/ios-obj/EXPORT_HDRS/libsa"
 if [ ! -f "$KERNEL_SDKROOT/usr/local/lib/kernel/libfirehose_kernel.a" ]; then
   bash scripts/build-firehose.sh
 fi
@@ -326,7 +339,38 @@ if [ "$(cat "$SHENG_PMGR_STAMP" 2>/dev/null || echo 0)" != "$SHENG_PMGR" ]; then
   rm -f "$ROOT/build/xnu/ios-obj/DEVELOPMENT_ARM64_BCM2837/bsd/DEVELOPMENT/bsd_init.o"
   printf '%s\n' "$SHENG_PMGR" > "$SHENG_PMGR_STAMP"
 fi
-EXTRA_MAKE_ARGS+=("bsd_init.o_CFLAGS_ADD=-DXNU_SHENG_PMGR=$SHENG_PMGR -DXNU_VERIFIED_ROOT_PROBE=$OWNER_ROOT_PROBE -DXNU_OWNER_ROOT_AUDIT=$OWNER_ROOT_AUDIT -DXNU_OWNER_ROOT_TRUST=$OWNER_ROOT_TRUST -DXNU_ADRENO_FIRMWARE_PROBE=$ADRENO_FIRMWARE_PROBE -DXNU_ADRENO_PM4_PROBE=$ADRENO_PM4_PROBE -DXNU_SMMU4K_PROBE=$SMMU4K_PROBE -DXNU_CONSTANT_UPLOADS_PROBE=$CONSTANT_UPLOADS_PROBE -DXNU_NATIVE_LEGACY_DISPLAY=${XNU_NATIVE_LEGACY_DISPLAY:-0} -DXNU_NATIVE_OFFLINE_GPU=$NATIVE_OFFLINE_GPU")
+RAM_ROOT_PROBE=${XNU_RAM_ROOT_PROBE:-0}
+RAM_USER_ENTRY=${XNU_RAM_USER_ENTRY:-0}
+if [ "$RAM_USER_ENTRY" != 0 ] && [ "$RAM_USER_ENTRY" != 1 ]; then
+  echo 'XNU_RAM_USER_ENTRY must be 0 or 1' >&2
+  exit 1
+fi
+if [ "$RAM_USER_ENTRY" = 1 ] && { [ "$RAM_ROOT_PROBE" != 1 ] || [ "${XNU_NATIVE_AIR_INIT:-0}" != 0 ] || [ "${XNU_OWNER_CACHE_MOUNT:-0}" != 0 ] || [ "${XNU_OWNER_DATA_MOUNT:-0}" != 0 ]; }; then
+  echo 'Bounded RAM user entry requires verified md0 and no alternative init/cache/Data paths' >&2
+  exit 1
+fi
+RAM_USER_STAMP=$ROOT/build/xnu/ios-obj/DEVELOPMENT_ARM64_BCM2837/.ram-user-entry-mode
+if [ "$(cat "$RAM_USER_STAMP" 2>/dev/null || echo 0)" != "$RAM_USER_ENTRY" ]; then
+  rm -f "$ROOT/build/xnu/ios-obj/DEVELOPMENT_ARM64_BCM2837/bsd/DEVELOPMENT/bsd_init.o" \
+    "$ROOT/build/xnu/ios-obj/DEVELOPMENT_ARM64_BCM2837/bsd/DEVELOPMENT/kern_exec.o" \
+    "$ROOT/build/xnu/ios-obj/DEVELOPMENT_ARM64_BCM2837/osfmk/DEVELOPMENT/sleh.o"
+  printf '%s\n' "$RAM_USER_ENTRY" > "$RAM_USER_STAMP"
+fi
+EXTRA_MAKE_ARGS+=("sleh.o_CFLAGS_ADD=-DXNU_RAM_USER_ENTRY=$RAM_USER_ENTRY")
+if [ "$RAM_ROOT_PROBE" != 0 ] && [ "$RAM_ROOT_PROBE" != 1 ]; then
+  echo 'XNU_RAM_ROOT_PROBE must be 0 or 1' >&2
+  exit 1
+fi
+if [ "$RAM_ROOT_PROBE" = 1 ] && { [ "${XNU_NATIVE_UFS:-0}" = 1 ] || [ "${XNU_NATIVE_RAM_BLOCK:-0}" = 1 ]; }; then
+  echo 'RAM root mount-only probe requires physical UFS and the persistent Data provider disabled' >&2
+  exit 1
+fi
+RAM_ROOT_STAMP=$ROOT/build/xnu/ios-obj/DEVELOPMENT_ARM64_BCM2837/.ram-root-probe-mode
+if [ "$(cat "$RAM_ROOT_STAMP" 2>/dev/null || echo 0)" != "$RAM_ROOT_PROBE" ]; then
+  rm -f "$ROOT/build/xnu/ios-obj/DEVELOPMENT_ARM64_BCM2837/bsd/DEVELOPMENT/bsd_init.o"
+  printf '%s\n' "$RAM_ROOT_PROBE" > "$RAM_ROOT_STAMP"
+fi
+EXTRA_MAKE_ARGS+=("bsd_init.o_CFLAGS_ADD=-DXNU_RAM_ROOT_PROBE=$RAM_ROOT_PROBE -DXNU_RAM_USER_ENTRY=$RAM_USER_ENTRY -DXNU_SHENG_PMGR=$SHENG_PMGR -DXNU_VERIFIED_ROOT_PROBE=$OWNER_ROOT_PROBE -DXNU_OWNER_ROOT_AUDIT=$OWNER_ROOT_AUDIT -DXNU_OWNER_ROOT_TRUST=$OWNER_ROOT_TRUST -DXNU_ADRENO_FIRMWARE_PROBE=$ADRENO_FIRMWARE_PROBE -DXNU_ADRENO_PM4_PROBE=$ADRENO_PM4_PROBE -DXNU_SMMU4K_PROBE=$SMMU4K_PROBE -DXNU_CONSTANT_UPLOADS_PROBE=$CONSTANT_UPLOADS_PROBE -DXNU_NATIVE_LEGACY_DISPLAY=${XNU_NATIVE_LEGACY_DISPLAY:-0} -DXNU_NATIVE_OFFLINE_GPU=$NATIVE_OFFLINE_GPU")
 NATIVE_MOBILE_DISPLAY=${XNU_NATIVE_MOBILE_DISPLAY:-0}
 if [ "$NATIVE_MOBILE_DISPLAY" != 0 ] && [ "$NATIVE_MOBILE_DISPLAY" != 1 ]; then
   echo 'XNU_NATIVE_MOBILE_DISPLAY must be 0 or 1' >&2
@@ -463,7 +507,7 @@ if [ "$(cat "$NATIVE_AIR_STAMP" 2>/dev/null || echo 0)" != "$NATIVE_AIR_INIT" ];
   rm -f "$ROOT/build/xnu/ios-obj/DEVELOPMENT_ARM64_BCM2837/bsd/DEVELOPMENT/kern_exec.o"
   printf '%s\n' "$NATIVE_AIR_INIT" > "$NATIVE_AIR_STAMP"
 fi
-EXTRA_MAKE_ARGS+=("kern_exec.o_CFLAGS_ADD=-DXNU_NATIVE_AIR_INIT=$NATIVE_AIR_INIT -DXNU_OWNER_CACHE_MOUNT=$OWNER_CACHE_MOUNT -DXNU_OWNER_CACHE_STARTUP=$OWNER_CACHE_STARTUP -DXNU_OWNER_BOOT_MANIFEST=$OWNER_BOOT_MANIFEST -DXNU_OWNER_DATA_MOUNT=$OWNER_DATA_MOUNT -DXNU_NATIVE_RAM_BLOCK=$NATIVE_RAM_BLOCK -DXNU_OWNER_CRYPTEX_FILES=$OWNER_CRYPTEX_FILES -DXNU_OWNER_UNION_SYSTEMOS=$OWNER_UNION_SYSTEMOS -include $OWNER_DATA_HEADER")
+EXTRA_MAKE_ARGS+=("kern_exec.o_CFLAGS_ADD=-DXNU_RAM_USER_ENTRY=$RAM_USER_ENTRY -DXNU_NATIVE_AIR_INIT=$NATIVE_AIR_INIT -DXNU_OWNER_CACHE_MOUNT=$OWNER_CACHE_MOUNT -DXNU_OWNER_CACHE_STARTUP=$OWNER_CACHE_STARTUP -DXNU_OWNER_BOOT_MANIFEST=$OWNER_BOOT_MANIFEST -DXNU_OWNER_DATA_MOUNT=$OWNER_DATA_MOUNT -DXNU_NATIVE_RAM_BLOCK=$NATIVE_RAM_BLOCK -DXNU_OWNER_CRYPTEX_FILES=$OWNER_CRYPTEX_FILES -DXNU_OWNER_UNION_SYSTEMOS=$OWNER_UNION_SYSTEMOS -include $OWNER_DATA_HEADER")
 OWNER_CACHE_STAMP=$ROOT/build/xnu/ios-obj/DEVELOPMENT_ARM64_BCM2837/.owner-cache-mount-mode
 if [ "$(cat "$OWNER_CACHE_STAMP" 2>/dev/null || echo 0:0)" != "$OWNER_CACHE_MOUNT:$OWNER_CACHE_STARTUP" ]; then
   rm -f "$ROOT/build/xnu/ios-obj/DEVELOPMENT_ARM64_BCM2837/bsd/DEVELOPMENT/kern_exec.o"
@@ -724,6 +768,12 @@ PY_BINDINGS
     KERNEL_EXTRA_ARCHIVES="$KERNEL_EXTRA_ARCHIVES -Wl,-force_load,$PMGR_ARCHIVE"
     KERNEL_ARCHIVE_DEPENDENCIES="$KERNEL_ARCHIVE_DEPENDENCIES $PMGR_ARCHIVE"
   fi
+  if [ "$RAM_ROOT_PROBE" = 1 ]; then
+    RAM_ROOT_ARCHIVE=$ROOT/build/ram-root-probe/libRamRootProbe.a
+    test -f "$RAM_ROOT_ARCHIVE"
+    KERNEL_EXTRA_ARCHIVES="$KERNEL_EXTRA_ARCHIVES -Wl,-force_load,$RAM_ROOT_ARCHIVE"
+    KERNEL_ARCHIVE_DEPENDENCIES="$KERNEL_ARCHIVE_DEPENDENCIES $RAM_ROOT_ARCHIVE"
+  fi
   # Optional extra link inputs (e.g. a stub for an unselected offline probe hook).
   if [ "$BOOT_PROGRESS" = 1 ]; then
     KERNEL_EXTRA_ARCHIVES="$KERNEL_EXTRA_ARCHIVES -Wl,-force_load,$ROOT/build/boot-progress/libBootProgress.a"
@@ -744,6 +794,7 @@ python3 - "${XNU_NATIVE_AES:-0}" "${XNU_NATIVE_AES_ARCHIVE:-$ROOT/build/native-a
   "$NATIVE_VIRTIO_CONSOLE" "$ROOT/build/native-virtio-console/libNativeVirtioConsole.a" \
   "$NATIVE_OFFLINE_GPU" "$ROOT/build/native-offline-gpu/libNativeOfflineGPU.late.a" \
   "$SHENG_PMGR" "$ROOT/build/sheng-platform-power/libShengPlatformPower.a" \
+  "$RAM_ROOT_PROBE" "$ROOT/build/ram-root-probe/libRamRootProbe.a" \
   "${XNU_NATIVE_ADRENO:-0}" "$ROOT/build/native-adreno/libNativeAdreno.a" <<'PY'
 import hashlib
 from pathlib import Path

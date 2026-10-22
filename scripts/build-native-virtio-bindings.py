@@ -13,17 +13,19 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'kits/NativePrelink'))
 import native_prelink as np
 parser = argparse.ArgumentParser(description=__doc__)
-parser.add_argument('--component', choices=['NativeVirtioBlock', 'NativeRamBlock'], default='NativeVirtioBlock')
+parser.add_argument('--component', choices=['NativeVirtioBlock', 'NativeRamBlock', 'NativeUfs'], default='NativeVirtioBlock')
 parser.add_argument('--directory', type=Path, default=ROOT / 'build/native-virtio-block')
+parser.add_argument('--allow-static-audit', action='store_true', help='Bring-up only: accept an explicitly static dispatch audit without live metadata qualification')
 args = parser.parse_args()
 out = args.directory.resolve()
 audit = json.loads((ROOT / 'build/storage-abi/interface-audit.json').read_text())
 component = args.component
-mangled = str(len(component)) + component
+class_name = 'NativeUfsBlock' if component == 'NativeUfs' else component
+mangled = str(len(class_name)) + class_name
 obj_path = out / (component + '.o')
 obj = obj_path.read_bytes()
 image = np.macho(obj)
-if not audit['live_native_4k'] or audit['method_slots'] != 190 or not audit['abstract_complete_destructors_trap']:
+if (not audit['live_native_4k'] and not (args.allow_static_audit and audit.get('static_dispatch_verified'))) or audit['method_slots'] != 190 or not audit['abstract_complete_destructors_trap']:
     raise SystemExit('First qualify original live storage metadata and its real base functions')
 offset = next(at for cmd, at, size in image['commands'] if cmd == 2)
 sy, count, st, _ = struct.unpack_from('<4I', obj, offset + 8)
@@ -58,11 +60,13 @@ for row, actual in zip(audit['methods'], compiled):
         if not own or (row['slot'] not in (0, 1) and readable[actual].split('::', 1)[1] != readable[expected].split('::', 1)[1]):
             raise SystemExit('Concrete subclass dispatch mismatch at slot ' + str(row['slot']))
     overrides += own
-kernel_path = ROOT / 'build/native-prelink/native-apfs-load-positive.macho'
+kernel_path = Path(audit.get('candidate_path', ROOT / 'build/native-prelink/native-apfs-load-positive.macho'))
 # The binding values come from the recorded audit; the candidate only proves the audit's identity. Build products are pruned, so a
 # missing candidate is accepted (the audit JSON is the pinned record) while a present one must still match.
 if kernel_path.exists() and hashlib.sha256(kernel_path.read_bytes()).hexdigest() != audit['candidate_sha256']:
     raise SystemExit('Original binding input identity changed')
+if args.allow_static_audit and not kernel_path.is_file():
+    raise SystemExit('Static bring-up bindings require the exact audited candidate')
 possible = {r['reference_name']: int(r['candidate_target'], 16) for r in audit['methods'] if not r['kernel_names']}
 possible.update({'__ZN20IOBlockStorageDeviceC2EPK11OSMetaClass': int(audit['original_protected_constructor'], 16),
                  '__ZN20IOBlockStorageDeviceD2Ev': int(audit['original_base_destructor'], 16),
@@ -86,6 +90,7 @@ subprocess.run(['xcrun', 'ar', 'rcs', archive, obj_path, out / 'original-binding
     compiled_object_sha256=hashlib.sha256(obj).hexdigest(), virtual_methods_checked=190,
     concrete_overrides=overrides, unresolved_original_imports=0,
     bindings={name: hex(value) for name, value in bindings.items()}, original_code_modified=False,
+    live_metadata_qualified=audit['live_native_4k'], static_bringup_only=not audit['live_native_4k'],
     actual_io_qualified=False), indent=2) + '\n')
 print(f'PASS: 190 concrete slots, {overrides} overrides and {len(bindings)} genuine original storage imports')
 print('Actual device I/O and filesystem integration remain unqualified by this compile/ABI audit.')
