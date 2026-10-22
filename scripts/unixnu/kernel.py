@@ -77,18 +77,29 @@ def build(ctx, modules):
     env.update(xnu_env(ctx))
     env.update(version_env(modules))
     env['JOBS'] = str(ctx.jobs)
-    record = ctx.tree / 'build/xnu/ios-obj/DEVELOPMENT_ARM64_BCM2837/osfmk/DEVELOPMENT/startup.o.json'
-    if not record.is_file():
+    object_dir = ctx.tree / 'build/xnu/ios-obj/DEVELOPMENT_ARM64_BCM2837'
+    record = object_dir / 'osfmk/DEVELOPMENT/startup.o.json'
+    filelist = object_dir / 'link.filelist'
+
+    def compile_inputs_ready():
+        # A mode change can remove objects while leaving their compile records.
+        # Crypto archive builders also inspect every object in link.filelist.
+        if not record.is_file() or not filelist.is_file():
+            return False
+        objects = [Path(line.strip()) for line in filelist.read_text().splitlines() if line.strip()]
+        return bool(objects) and all((path if path.is_absolute() else object_dir / path).is_file() for path in objects)
+
+    if not compile_inputs_ready():
         # The archive builders and the boot progress layer read compile records of the XNU build, which only an earlier
         # pass leaves behind. A first build from scratch therefore runs one pass without them; XNU_BOOTSTRAP makes it
-        # skip the archive checks and link without the archives, so it stops at the link and only the records are
-        # required of it.
-        log('kernel: bootstrap pass for the compile records')
+        # skip the archive checks and link without the archives. It may stop at the link;
+        # the compile records and all objects in link.filelist are required of it.
+        log('kernel: bootstrap pass for missing compile records or objects')
         subprocess_env = {**env, 'XNU_BOOT_PROGRESS': '0', 'XNU_BOOTSTRAP': '1'}
         try:
             run(['bash', script], cwd=ctx.tree, env=subprocess_env, log_file=ctx.logs / 'kernel-bootstrap.log')
         except Error:
-            if not record.is_file():
+            if not compile_inputs_ready():
                 raise
     build_archives(ctx, env)
     run(['bash', script], cwd=ctx.tree, env=env, log_file=ctx.logs / 'kernel.log')
