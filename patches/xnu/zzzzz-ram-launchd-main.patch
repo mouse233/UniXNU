@@ -12,27 +12,45 @@
  		extern void fuxi_ram_user_svc(uint64_t, uint32_t, uint32_t, uint64_t) __attribute__((noreturn));
  		fuxi_ram_user_svc(get_saved_state_pc(state), get_saved_state_cpsr(state), esr, get_saved_state_reg(state, 16));
  #endif
-@@ -857,6 +860,10 @@
+@@ -857,6 +860,13 @@
  		}
  
  	case ESR_EC_BKPT_REG_MATCH_EL0:
 +#if defined(XNU_RAM_MAIN_PROBE) && XNU_RAM_MAIN_PROBE
-+		extern void fuxi_ram_main_break(uint64_t, uint32_t, uint32_t) __attribute__((noreturn));
++	{
++		extern void fuxi_ram_main_break(uint64_t, uint32_t, uint32_t);
 +		fuxi_ram_main_break(get_saved_state_pc(state), get_saved_state_cpsr(state), esr);
++		break;
++	}
 +#endif
  		if (FSC_DEBUG_FAULT == ISS_SSDE_FSC(esr)) {
  			handle_breakpoint(state, esr);
  		}
 --- a/bsd/dev/arm/systemcalls.c
 +++ b/bsd/dev/arm/systemcalls.c
-@@ -101,6 +101,10 @@
+@@ -101,6 +101,11 @@
  	uthread_reset_proc_refcount(uthread);
  
  	code = arm_get_syscall_number(state);
 +#if defined(XNU_RAM_MAIN_PROBE) && XNU_RAM_MAIN_PROBE
-+	extern void fuxi_ram_main_unix(unsigned);
-+	fuxi_ram_main_unix(code);
++	extern void fuxi_ram_progress_unix(unsigned, uint64_t, uint64_t);
++	unsigned ram_arg_offset = get_saved_state_reg(state, ARM64_SYSCALL_CODE_REG_NUM) == 0 ? 1 : 0;
++	fuxi_ram_progress_unix(code, get_saved_state_reg(state, ram_arg_offset), get_saved_state_reg(state, ram_arg_offset + 1));
 +#endif
  
  #define unix_syscall_kprintf(x...)      /* kprintf("unix_syscall: " x) */
  
+@@ -184,6 +189,13 @@
+ #if CONFIG_MACF
+ skip_syscall:
+ #endif /* CONFIG_MACF */
++
++#if defined(XNU_RAM_MAIN_PROBE) && XNU_RAM_MAIN_PROBE
++	{
++	extern void fuxi_ram_progress_unix_result(unsigned, int, int);
++	fuxi_ram_progress_unix_result(code, error, uthread->uu_rval[0]);
++	}
++#endif
+ 
+ 	unix_syscall_kprintf("code %d, error %d, results %x, %x (pid %d - %s, tid %lld)\n", code, error,
+ 	    uthread->uu_rval[0], uthread->uu_rval[1],

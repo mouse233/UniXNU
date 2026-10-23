@@ -31,6 +31,24 @@ if [ ! -x .cache/fakeroot/usr/local/libexec/availability.pl ]; then
     OBJROOT="$ROOT/build/availability" SYMROOT="$ROOT/build/availability" \
     DSTROOT="$ROOT/.cache/fakeroot" CMAKE="$(command -v cmake)" NINJA="$(command -v ninja)"
 fi
+# Explicit opt-in for isolated RAM diagnostic caches. Preserve restored public
+# headers, but rebuild the tracked source and patch-added files from pinned HEAD.
+if [ "${XNU_FRESH_PATCHES:-0}" = 1 ]; then
+  python3 - <<'RESET_PATCH_FILES'
+from pathlib import Path
+import subprocess
+source = Path('.cache/xnu-work')
+assert subprocess.check_output(['git', '-C', str(source), 'rev-parse', 'HEAD'], text=True).strip() == 'd8b80295118ef25ac3a784134bcf95cd8e88109f'
+for patch in [*Path('patches/xnu').glob('*.patch'), *Path('kits/NativePrelink/patches').glob('*.patch')]:
+    lines = patch.read_text().splitlines()
+    for i, line in enumerate(lines[:-1]):
+        if line == '--- /dev/null' and lines[i+1].startswith('+++ b/'):
+            name = Path(lines[i+1][6:].split('\t')[0])
+            assert not name.is_absolute() and '..' not in name.parts
+            (source / name).unlink(missing_ok=True)
+subprocess.run(['git', '-C', str(source), 'restore', '--source=HEAD', '--worktree', '--', '.'], check=True)
+RESET_PATCH_FILES
+fi
 # The optional observation hooks overlap existing root/exec patch context.
 # Remove them first so earlier independent patches retain their idempotent checks.
 # Root diagnostics, GPU addon mounts and staged system apps overlap earlier patch context.
@@ -342,6 +360,22 @@ fi
 RAM_ROOT_PROBE=${XNU_RAM_ROOT_PROBE:-0}
 RAM_USER_ENTRY=${XNU_RAM_USER_ENTRY:-0}
 RAM_MAIN_PROBE=${XNU_RAM_MAIN_PROBE:-0}
+RAM_PROGRESS=${XNU_RAM_PROGRESS:-0}
+RAM_RESTORE_TRUST=${XNU_RAM_RESTORE_TRUST:-0}
+if { [ "$RAM_RESTORE_TRUST" != 0 ] && [ "$RAM_RESTORE_TRUST" != 1 ]; } || { [ "$RAM_RESTORE_TRUST" = 1 ] && [ "$RAM_PROGRESS" != 1 ]; }; then
+  echo 'XNU_RAM_RESTORE_TRUST must be 0 or 1 and requires the isolated progress profile' >&2
+  exit 1
+fi
+RESTORE_STAMP=$ROOT/build/xnu/ios-obj/DEVELOPMENT_ARM64_BCM2837/.ram-restore-trust-mode
+if [ "$(cat "$RESTORE_STAMP" 2>/dev/null || echo 0)" != "$RAM_RESTORE_TRUST" ]; then
+  rm -f "$ROOT/build/xnu/ios-obj/DEVELOPMENT_ARM64_BCM2837/bsd/DEVELOPMENT/kern_trustcache.o"
+  printf '%s\n' "$RAM_RESTORE_TRUST" > "$RESTORE_STAMP"
+fi
+EXTRA_MAKE_ARGS+=("kern_trustcache.o_CFLAGS_ADD=-DXNU_RAM_RESTORE_TRUST=$RAM_RESTORE_TRUST")
+if { [ "$RAM_PROGRESS" != 0 ] && [ "$RAM_PROGRESS" != 1 ]; } || { [ "$RAM_PROGRESS" = 1 ] && [ "$RAM_MAIN_PROBE" != 1 ]; }; then
+  echo 'XNU_RAM_PROGRESS must be 0 or 1 and requires main observation' >&2
+  exit 1
+fi
 if [ "$RAM_MAIN_PROBE" != 0 ] && [ "$RAM_MAIN_PROBE" != 1 ]; then
   echo 'XNU_RAM_MAIN_PROBE must be 0 or 1' >&2
   exit 1
@@ -787,11 +821,13 @@ PY_BINDINGS
   if [ "$RAM_ROOT_PROBE" = 1 ]; then
     RAM_ROOT_ARCHIVE=$ROOT/build/ram-root-probe/libRamRootProbe.a
     test -f "$RAM_ROOT_ARCHIVE"
-    python3 - "$ROOT/build/ram-root-probe/build-report.json" "$RAM_ROOT_ARCHIVE" "$RAM_USER_ENTRY" "$RAM_MAIN_PROBE" <<'PY'
+    python3 - "$ROOT/build/ram-root-probe/build-report.json" "$RAM_ROOT_ARCHIVE" "$RAM_USER_ENTRY" "$RAM_MAIN_PROBE" "$RAM_PROGRESS" "$RAM_RESTORE_TRUST" <<'PY'
 import hashlib, json, sys
 from pathlib import Path
 report = json.loads(Path(sys.argv[1]).read_text())
 if (report['user_entry'] != (sys.argv[3] == '1') or report['main_entry'] != (sys.argv[4] == '1') or
+        report.get('progress', False) != (sys.argv[5] == '1') or
+        report.get('restore_trust', False) != (sys.argv[6] == '1') or
         report['archive_sha256'] != hashlib.sha256(Path(sys.argv[2]).read_bytes()).hexdigest()):
     raise SystemExit('RAM diagnostic archive/configuration mismatch; rebuild its archive')
 PY

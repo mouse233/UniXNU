@@ -14,7 +14,20 @@
  
 --- a/bsd/kern/kern_exec.c
 +++ b/bsd/kern/kern_exec.c
-@@ -7421,7 +7421,12 @@
+@@ -5456,6 +5456,12 @@
+ 			if (!exec_done && error != 0) {
+ 				clearwait_flags |= TCRW_CLEAR_EXEC_COMPLETE;
+ 			}
++#if defined(XNU_RAM_USER_ENTRY) && XNU_RAM_USER_ENTRY
++			if (!error && exec_done && proc_getpid(p) == 1) {
++				extern void fuxi_ram_user_exec_ready(thread_t, int);
++				fuxi_ram_user_exec_ready(imgp->ip_new_thread, proc_getpid(p));
++			}
++#endif
+ 			/* wake up the new exec thread */
+ 			task_clear_return_wait(get_threadtask(imgp->ip_new_thread), clearwait_flags);
+ 			thread_deallocate(imgp->ip_new_thread);
+@@ -7971,7 +7977,12 @@
  	 */
  	set_security_token(p, proc_ucred_unsafe(p));
  

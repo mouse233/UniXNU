@@ -1,0 +1,30 @@
+--- a/bsd/kern/kern_trustcache.c
++++ b/bsd/kern/kern_trustcache.c
+@@ -1052,6 +1052,13 @@
+ 	}
+ 	const uintptr_t tc_region_end = (uintptr_t)tc_offsets + tc_segment_length;
+ 
++#if defined(XNU_RAM_RESTORE_TRUST) && XNU_RAM_RESTORE_TRUST
++	/* Restore boots use the original restore module as their first static root.
++	 * Keep both existing external modules intact as additional boot modules. */
++	extern void fuxi_ram_restore_trust_load(TrustCacheRuntime_t *, TrustCache_t *);
++	fuxi_ram_restore_trust_load(trust_cache_rt, &trust_cache_static0);
++#endif
++
+ 	printf("attempting to load %u external trust cache modules\n", tc_offsets->num_caches);
+ 
+ 	for (uint32_t i = 0; i < tc_offsets->num_caches; i++) {
+@@ -1071,11 +1078,13 @@
+ 		/* Should be safe for underflow */
+ 		const size_t buffer_length = tc_region_end - tc_module;
+ 
++#if !defined(XNU_RAM_RESTORE_TRUST) || !XNU_RAM_RESTORE_TRUST
+ 		/* The first module is always the static trust cache */
+ 		if (i == 0) {
+ 			tc_type = kTCTypeStatic;
+ 			trust_cache = &trust_cache_static0;
+ 		}
++#endif
+ 
+ #if CONFIG_SECOND_STATIC_TRUST_CACHE
+ 		if (trust_cache_rt->allowSecondStaticTC && (i == 1)) {
