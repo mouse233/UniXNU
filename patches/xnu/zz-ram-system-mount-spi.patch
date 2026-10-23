@@ -1,0 +1,53 @@
+--- a/bsd/vfs/vfs_syscalls.c
++++ b/bsd/vfs/vfs_syscalls.c
+@@ -346,7 +346,9 @@
+ int
+ fuxi_ram_mount_ro(const char *device, const char *path)
+ {
+-    if (!device || !path || (strcmp(path, "/mnt1") && strcmp(path, "/mnt2"))) return EINVAL;
++    if (!device || !path ||
++        !((!strcmp(device, "/dev/md1") && !strcmp(path, "/mnt1")) ||
++          (!strcmp(device, "/dev/md2") && !strcmp(path, "/mnt2")))) return EINVAL;
+     return kernel_mount("apfs", NULLVP, NULLVP, path, &device, sizeof(device),
+         MNT_RDONLY | MNT_DONTBROWSE, KERNEL_MOUNT_RAM_SYSTEM, vfs_context_kernel());
+ }
+@@ -1038,6 +1040,13 @@
+ 	boolean_t did_set_vmount = FALSE;
+ 	boolean_t kernelmount = !!(internal_flags & KERNEL_MOUNT_KMOUNT);
+ 
++	/* The private RAM diagnostic may only add read-only APFS mounts. */
++	if ((internal_flags & KERNEL_MOUNT_RAM_SYSTEM) &&
++	    (!kernelmount || strcmp(fstypename, "apfs") || !(flags & MNT_RDONLY) ||
++	    (flags & MNT_UPDATE))) {
++		return EINVAL;
++	}
++
+ #if CONFIG_ROSV_STARTUP || CONFIG_MOUNT_VM || CONFIG_BASESYSTEMROOT
+ 	/* Check for mutually-exclusive flag bits */
+ 	uint32_t checkflags = (internal_flags & (KERNEL_MOUNT_VOLBYROLE_MASK | KERNEL_MOUNT_BASESYSTEMROOT));
+@@ -1178,11 +1187,13 @@
+ 
+ 	/*
+ 	 * VFC_VFSLOCALARGS is not currently supported for kernel mounts,
+-	 * except in ROSV configs and for the initial BaseSystem root.
++	 * except in ROSV configs, the initial BaseSystem root and the private
++	 * read-only RAM diagnostic (which supplies a kernel-space device path).
+ 	 */
+ 	if (kernelmount && (vfsp->vfc_vfsflags & VFC_VFSLOCALARGS) &&
+ 	    ((internal_flags & KERNEL_MOUNT_VOLBYROLE_MASK) == 0) &&
+-	    ((internal_flags & KERNEL_MOUNT_BASESYSTEMROOT) == 0)) {
++	    ((internal_flags & KERNEL_MOUNT_BASESYSTEMROOT) == 0) &&
++	    ((internal_flags & KERNEL_MOUNT_RAM_SYSTEM) == 0)) {
+ 		error = EINVAL;  /* unsupported request */
+ 		goto out1;
+ 	}
+@@ -1378,6 +1389,9 @@
+ 				seg = UIO_SYSSPACE;
+ 			}
+ #endif // CONFIG_BASESYSTEMROOT
++			if (internal_flags & KERNEL_MOUNT_RAM_SYSTEM) {
++				seg = UIO_SYSSPACE;
++			}
+ 
+ 			NDINIT(&nd, LOOKUP, OP_MOUNT, FOLLOW, seg, devpath, ctx);
+ 			if ((error = namei(&nd))) {
