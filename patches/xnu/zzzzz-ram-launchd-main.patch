@@ -1,0 +1,38 @@
+--- a/osfmk/arm64/sleh.c
++++ b/osfmk/arm64/sleh.c
+@@ -764,7 +764,10 @@
+ 			panic("Invalid SVC_64 context");
+ 		}
+ 
+-#if defined(XNU_RAM_USER_ENTRY) && XNU_RAM_USER_ENTRY
++#if defined(XNU_RAM_MAIN_PROBE) && XNU_RAM_MAIN_PROBE
++		extern void fuxi_ram_main_svc(uint64_t, uint32_t, uint32_t, uint64_t);
++		fuxi_ram_main_svc(get_saved_state_pc(state), get_saved_state_cpsr(state), esr, get_saved_state_reg(state, 16));
++#elif defined(XNU_RAM_USER_ENTRY) && XNU_RAM_USER_ENTRY
+ 		extern void fuxi_ram_user_svc(uint64_t, uint32_t, uint32_t, uint64_t) __attribute__((noreturn));
+ 		fuxi_ram_user_svc(get_saved_state_pc(state), get_saved_state_cpsr(state), esr, get_saved_state_reg(state, 16));
+ #endif
+@@ -857,6 +860,10 @@
+ 		}
+ 
+ 	case ESR_EC_BKPT_REG_MATCH_EL0:
++#if defined(XNU_RAM_MAIN_PROBE) && XNU_RAM_MAIN_PROBE
++		extern void fuxi_ram_main_break(uint64_t, uint32_t, uint32_t) __attribute__((noreturn));
++		fuxi_ram_main_break(get_saved_state_pc(state), get_saved_state_cpsr(state), esr);
++#endif
+ 		if (FSC_DEBUG_FAULT == ISS_SSDE_FSC(esr)) {
+ 			handle_breakpoint(state, esr);
+ 		}
+--- a/bsd/dev/arm/systemcalls.c
++++ b/bsd/dev/arm/systemcalls.c
+@@ -101,6 +101,10 @@
+ 	uthread_reset_proc_refcount(uthread);
+ 
+ 	code = arm_get_syscall_number(state);
++#if defined(XNU_RAM_MAIN_PROBE) && XNU_RAM_MAIN_PROBE
++	extern void fuxi_ram_main_unix(unsigned);
++	fuxi_ram_main_unix(code);
++#endif
+ 
+ #define unix_syscall_kprintf(x...)      /* kprintf("unix_syscall: " x) */
+ 

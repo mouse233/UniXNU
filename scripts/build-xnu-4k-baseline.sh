@@ -35,7 +35,7 @@ fi
 # Remove them first so earlier independent patches retain their idempotent checks.
 # Root diagnostics, GPU addon mounts and staged system apps overlap earlier patch context.
 # Reverse newest first; the loop below re-applies them in name order.
-for LATE_PATCH in "$ROOT/patches/xnu/zzzz-ram-user-entry.patch" "$ROOT/patches/xnu/zzz-ram-root-probe.patch" \
+for LATE_PATCH in "$ROOT/patches/xnu/zzzzz-ram-launchd-main.patch" "$ROOT/patches/xnu/zzzz-ram-user-entry.patch" "$ROOT/patches/xnu/zzz-ram-root-probe.patch" \
     "$ROOT/patches/xnu/zzz-boot-progress.patch" "$ROOT/patches/xnu/zzy-staged-system-apps.patch" \
     "$ROOT/patches/xnu/zzy-native-gpu-addon-mount.patch"; do
   if git -C .cache/xnu-work apply --reverse --check "$LATE_PATCH" >/dev/null 2>&1; then
@@ -341,6 +341,22 @@ if [ "$(cat "$SHENG_PMGR_STAMP" 2>/dev/null || echo 0)" != "$SHENG_PMGR" ]; then
 fi
 RAM_ROOT_PROBE=${XNU_RAM_ROOT_PROBE:-0}
 RAM_USER_ENTRY=${XNU_RAM_USER_ENTRY:-0}
+RAM_MAIN_PROBE=${XNU_RAM_MAIN_PROBE:-0}
+if [ "$RAM_MAIN_PROBE" != 0 ] && [ "$RAM_MAIN_PROBE" != 1 ]; then
+  echo 'XNU_RAM_MAIN_PROBE must be 0 or 1' >&2
+  exit 1
+fi
+if [ "$RAM_MAIN_PROBE" = 1 ] && [ "$RAM_USER_ENTRY" != 1 ]; then
+  echo 'RAM main observation requires the verified RAM user-entry path' >&2
+  exit 1
+fi
+RAM_MAIN_STAMP=$ROOT/build/xnu/ios-obj/DEVELOPMENT_ARM64_BCM2837/.ram-main-probe-mode
+if [ "$(cat "$RAM_MAIN_STAMP" 2>/dev/null || echo 0)" != "$RAM_MAIN_PROBE" ]; then
+  rm -f "$ROOT/build/xnu/ios-obj/DEVELOPMENT_ARM64_BCM2837/osfmk/DEVELOPMENT/sleh.o" \
+    "$ROOT/build/xnu/ios-obj/DEVELOPMENT_ARM64_BCM2837/bsd/DEVELOPMENT/systemcalls.o"
+  printf '%s\n' "$RAM_MAIN_PROBE" > "$RAM_MAIN_STAMP"
+fi
+EXTRA_MAKE_ARGS+=("systemcalls.o_CFLAGS_ADD=-DXNU_RAM_MAIN_PROBE=$RAM_MAIN_PROBE")
 if [ "$RAM_USER_ENTRY" != 0 ] && [ "$RAM_USER_ENTRY" != 1 ]; then
   echo 'XNU_RAM_USER_ENTRY must be 0 or 1' >&2
   exit 1
@@ -356,7 +372,7 @@ if [ "$(cat "$RAM_USER_STAMP" 2>/dev/null || echo 0)" != "$RAM_USER_ENTRY" ]; th
     "$ROOT/build/xnu/ios-obj/DEVELOPMENT_ARM64_BCM2837/osfmk/DEVELOPMENT/sleh.o"
   printf '%s\n' "$RAM_USER_ENTRY" > "$RAM_USER_STAMP"
 fi
-EXTRA_MAKE_ARGS+=("sleh.o_CFLAGS_ADD=-DXNU_RAM_USER_ENTRY=$RAM_USER_ENTRY")
+EXTRA_MAKE_ARGS+=("sleh.o_CFLAGS_ADD=-DXNU_RAM_USER_ENTRY=$RAM_USER_ENTRY -DXNU_RAM_MAIN_PROBE=$RAM_MAIN_PROBE")
 if [ "$RAM_ROOT_PROBE" != 0 ] && [ "$RAM_ROOT_PROBE" != 1 ]; then
   echo 'XNU_RAM_ROOT_PROBE must be 0 or 1' >&2
   exit 1
@@ -771,6 +787,14 @@ PY_BINDINGS
   if [ "$RAM_ROOT_PROBE" = 1 ]; then
     RAM_ROOT_ARCHIVE=$ROOT/build/ram-root-probe/libRamRootProbe.a
     test -f "$RAM_ROOT_ARCHIVE"
+    python3 - "$ROOT/build/ram-root-probe/build-report.json" "$RAM_ROOT_ARCHIVE" "$RAM_USER_ENTRY" "$RAM_MAIN_PROBE" <<'PY'
+import hashlib, json, sys
+from pathlib import Path
+report = json.loads(Path(sys.argv[1]).read_text())
+if (report['user_entry'] != (sys.argv[3] == '1') or report['main_entry'] != (sys.argv[4] == '1') or
+        report['archive_sha256'] != hashlib.sha256(Path(sys.argv[2]).read_bytes()).hexdigest()):
+    raise SystemExit('RAM diagnostic archive/configuration mismatch; rebuild its archive')
+PY
     KERNEL_EXTRA_ARCHIVES="$KERNEL_EXTRA_ARCHIVES -Wl,-force_load,$RAM_ROOT_ARCHIVE"
     KERNEL_ARCHIVE_DEPENDENCIES="$KERNEL_ARCHIVE_DEPENDENCIES $RAM_ROOT_ARCHIVE"
   fi
