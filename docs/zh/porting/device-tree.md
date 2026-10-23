@@ -71,7 +71,7 @@ bank 镜像包含 `nvram` 头、带两 KiB 数据区的 `common` 头和 `free` �
 | `crypto-hash-method` | 字符串 | Image4 哈希方法，例如 `sha2-384` |
 | `root-matching` | 字典 | 根卷匹配字典 |
 | `ephemeral-storage` | 32 位 | 标记可写 Data 卷为临时 |
-| `darwinboot-memory-size` | 64 位 | 连续窗口请求，256 MiB 到 8 GiB，2 MiB 步进 |
+| `darwinboot-memory-size` | 64 位 | 连续窗口请求，256 MiB 到 16 GiB，2 MiB 步进 |
 | `amfi-only-platform-code` | 32 位 | 保持 AMFI 平台代码策略 |
 | `boot-manifest-hash` | 字节 | owner 路径的启动 manifest 哈希 |
 

@@ -71,7 +71,7 @@ An empty proxy is enough for a device with no persistent NVRAM controller.
 | `crypto-hash-method` | string | Image4 hash method, for example `sha2-384` |
 | `root-matching` | dictionary | Root volume match dictionary |
 | `ephemeral-storage` | 32-bit | Marks the writable Data volume as ephemeral |
-| `darwinboot-memory-size` | 64-bit | Contiguous window request, 256 MiB to 8 GiB in 2 MiB steps |
+| `darwinboot-memory-size` | 64-bit | Contiguous window request, 256 MiB to 16 GiB in 2 MiB steps |
 | `amfi-only-platform-code` | 32-bit | Keeps AMFI in its platform code policy |
 | `boot-manifest-hash` | bytes | Boot manifest hash for the owner path |
 
