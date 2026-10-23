@@ -117,10 +117,21 @@ def build(ctx, uefi, fd, dtb, ramdisk=None, output=None):
 def verify(path, combined, tree, ramdisk_path, image):
     """Unpack the image and compare every part with its input."""
     data = Path(path).read_bytes()
-    kernel_size, kernel_address, ramdisk_size, _, second_size, _, tags, page, version, _ = struct.unpack_from('<10I', data, 8)
+    if image['header_version'] >= 3:
+        # v3 drops the load addresses and stores the header size instead; pages are fixed at 4 KiB.
+        kernel_size, ramdisk_size, _, header_size = struct.unpack_from('<4I', data, 8)
+        version = struct.unpack_from('<I', data, 40)[0]
+        page, second_size, header_expected = 4096, 0, 1580
+        kernel_address = tags = None
+    else:
+        kernel_size, kernel_address, ramdisk_size, _, second_size, _, tags, page, version, _ = struct.unpack_from('<10I', data, 8)
+        header_expected = None
     if data[:8] != b'ANDROID!' or second_size or version != image['header_version'] or page != image['pagesize']:
         raise Error('boot image header does not match the requested parameters')
-    if kernel_address != image['base'] + image['kernel_offset'] or tags != image['base'] + image['tags_offset']:
+    if header_expected is not None and header_size != header_expected:
+        raise Error(f'boot image v3 header is {header_size} bytes, expected {header_expected}')
+    if kernel_address is not None and (kernel_address != image['base'] + image['kernel_offset'] or
+                                       tags != image['base'] + image['tags_offset']):
         raise Error('boot image load addresses do not match the requested offsets')
     kernel = data[page:page + kernel_size]
     unpacker = zlib.decompressobj(16 + zlib.MAX_WBITS)
@@ -130,4 +141,6 @@ def verify(path, combined, tree, ramdisk_path, image):
     if data[start:start + ramdisk_size] != Path(ramdisk_path).read_bytes():
         raise Error('ramdisk bytes differ')
     return {'kernel_sha256': hashlib.sha256(kernel).hexdigest(), 'ramdisk_bytes': ramdisk_size,
-            'header_version': version, 'kernel_address': hex(kernel_address), 'tags_address': hex(tags)}
+            'header_version': version,
+            'kernel_address': hex(kernel_address) if kernel_address is not None else None,
+            'tags_address': hex(tags) if tags is not None else None}
