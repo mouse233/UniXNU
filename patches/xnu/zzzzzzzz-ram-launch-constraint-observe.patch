@@ -1,0 +1,100 @@
+--- a/security/mac_process.c
++++ b/security/mac_process.c
+@@ -933,9 +933,18 @@
+ 		        lcd.launch_type = psa->psa_launch_type;
+ 		}
+ 
+-		error = mac_error_select(
+-			hook(curp, original_parent_id, responsible_pid,
+-			spawnattr, spawnattrlen, &lcd, &fatal_failure_desc, &fatal_failure_desc_len), error);
++#if defined(XNU_RAM_LAUNCH_OBSERVE) && XNU_RAM_LAUNCH_OBSERVE
++		extern int fuxi_ram_launch_begin(proc_t, vnode_t, const char *) __attribute__((weak_import));
++		extern void fuxi_ram_launch_end(int, int, size_t) __attribute__((weak_import));
++		int ram_launch_token = (&fuxi_ram_launch_begin && &fuxi_ram_launch_end) ?
++		    fuxi_ram_launch_begin(curp, vp, mpc->mpc_name) : 0;
++#endif
++		int policy_error = hook(curp, original_parent_id, responsible_pid,
++		    spawnattr, spawnattrlen, &lcd, &fatal_failure_desc, &fatal_failure_desc_len);
++		error = mac_error_select(policy_error, error);
++#if defined(XNU_RAM_LAUNCH_OBSERVE) && XNU_RAM_LAUNCH_OBSERVE
++		if (ram_launch_token) fuxi_ram_launch_end(ram_launch_token, policy_error, fatal_failure_desc_len);
++#endif
+ 
+ 		/*
+ 		 * Early exit in case of failure in case we have multiple registered callers.
+--- a/bsd/vfs/kpi_vfs.c
++++ b/bsd/vfs/kpi_vfs.c
+@@ -464,7 +464,12 @@
+ uint64_t
+ vfs_flags(mount_t mp)
+ {
+-	return (uint64_t)(mp->mnt_flag & (MNT_CMDFLAGS | MNT_VISFLAGMASK));
++	uint64_t flags = (uint64_t)(mp->mnt_flag & (MNT_CMDFLAGS | MNT_VISFLAGMASK));
++#if defined(XNU_RAM_LAUNCH_OBSERVE) && XNU_RAM_LAUNCH_OBSERVE
++	extern void fuxi_ram_launch_flags(mount_t, uint64_t) __attribute__((weak_import));
++	if (&fuxi_ram_launch_flags) fuxi_ram_launch_flags(mp, flags);
++#endif
++	return flags;
+ }
+ 
+ /* set any of the command modifier flags(MNT_CMDFLAGS) in mount_t */
+@@ -3955,12 +3960,20 @@
+ 	 */
+ 	if (vfs_context_is64bit(ctx) && !(vnode_ischr(vp) || vnode_isblk(vp))) {
+ 		if (data != NULL && !vnode_vfs64bitready(vp)) {
++#if defined(XNU_RAM_LAUNCH_OBSERVE) && XNU_RAM_LAUNCH_OBSERVE
++			extern void fuxi_ram_launch_ioctl(vnode_t, u_long, int) __attribute__((weak_import));
++			if (&fuxi_ram_launch_ioctl) fuxi_ram_launch_ioctl(vp, command, ENOTTY);
++#endif
+ 			return ENOTTY;
+ 		}
+ 	}
+ 
+ 	if ((command == DKIOCISSOLIDSTATE) && (vp == rootvp) && rootvp_is_ssd && data) {
+ 		*data = 1;
++#if defined(XNU_RAM_LAUNCH_OBSERVE) && XNU_RAM_LAUNCH_OBSERVE
++		extern void fuxi_ram_launch_ioctl(vnode_t, u_long, int) __attribute__((weak_import));
++		if (&fuxi_ram_launch_ioctl) fuxi_ram_launch_ioctl(vp, command, 0);
++#endif
+ 		return 0;
+ 	}
+ 
+@@ -3974,6 +3987,10 @@
+ 	_err = (*vp->v_op[vnop_ioctl_desc.vdesc_offset])(&a);
+ 	DTRACE_FSINFO(ioctl, vnode_t, vp);
+ 
++#if defined(XNU_RAM_LAUNCH_OBSERVE) && XNU_RAM_LAUNCH_OBSERVE
++	extern void fuxi_ram_launch_ioctl(vnode_t, u_long, int) __attribute__((weak_import));
++	if (&fuxi_ram_launch_ioctl) fuxi_ram_launch_ioctl(vp, command, _err);
++#endif
+ 	return _err;
+ }
+ 
+--- a/bsd/kern/kern_sig.c
++++ b/bsd/kern/kern_sig.c
+@@ -2074,11 +2074,23 @@
+ 			    ((proc_getcsflags(p) & CS_KILLED) ? "(CS_KILLED)" : ""));
+ 		} else {
+ 			launchd_exit_reason_desc = exit_reason_get_string_desc(signal_reason);
+-			panic_plain("unexpected SIGKILL of %s %s with reason -- namespace %d code 0x%llx description %." LAUNCHD_PANIC_REASON_STRING_MAXLEN "s",
++#if defined(XNU_RAM_LAUNCH_OBSERVE) && XNU_RAM_LAUNCH_OBSERVE
++			extern const char *fuxi_ram_launch_info(void) __attribute__((weak_import));
++			const char *ram_launch_info = &fuxi_ram_launch_info ? fuxi_ram_launch_info() : "";
++#endif
++			panic_plain("unexpected SIGKILL of %s %s with reason -- namespace %d code 0x%llx description %." LAUNCHD_PANIC_REASON_STRING_MAXLEN "s"
++#if defined(XNU_RAM_LAUNCH_OBSERVE) && XNU_RAM_LAUNCH_OBSERVE
++			    "\n%s"
++#endif
++			    ,
+ 			    (p->p_name[0] != '\0' ? p->p_name : "initproc"),
+ 			    ((proc_getcsflags(p) & CS_KILLED) ? "(CS_KILLED)" : ""),
+ 			    signal_reason->osr_namespace, signal_reason->osr_code,
+-			    launchd_exit_reason_desc ? launchd_exit_reason_desc : "none");
++			    launchd_exit_reason_desc ? launchd_exit_reason_desc : "none"
++#if defined(XNU_RAM_LAUNCH_OBSERVE) && XNU_RAM_LAUNCH_OBSERVE
++			    , ram_launch_info
++#endif
++			    );
+ 		}
+ 	}
+ 

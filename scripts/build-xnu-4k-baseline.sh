@@ -368,6 +368,22 @@ RAM_USER_ENTRY=${XNU_RAM_USER_ENTRY:-0}
 RAM_MAIN_PROBE=${XNU_RAM_MAIN_PROBE:-0}
 RAM_PROGRESS=${XNU_RAM_PROGRESS:-0}
 RAM_RESTORE_TRUST=${XNU_RAM_RESTORE_TRUST:-0}
+RAM_LAUNCH_OBSERVE=${XNU_RAM_LAUNCH_OBSERVE:-0}
+if { [ "$RAM_LAUNCH_OBSERVE" != 0 ] && [ "$RAM_LAUNCH_OBSERVE" != 1 ]; } ||
+   { [ "$RAM_LAUNCH_OBSERVE" = 1 ] && { [ "$RAM_ROOT_PROBE" != 1 ] || [ "$RAM_USER_ENTRY" != 1 ] || [ "$RAM_MAIN_PROBE" != 1 ] || [ "$RAM_PROGRESS" != 0 ]; }; }; then
+  echo 'RAM launch observation requires the isolated bounded RAM main profile' >&2
+  exit 1
+fi
+RAM_LAUNCH_STAMP=$ROOT/build/xnu/ios-obj/DEVELOPMENT_ARM64_BCM2837/.ram-launch-observe-mode
+if [ "$(cat "$RAM_LAUNCH_STAMP" 2>/dev/null || echo unset)" != "v1:$RAM_LAUNCH_OBSERVE" ]; then
+  for object in security/DEVELOPMENT/mac_process.o bsd/DEVELOPMENT/kpi_vfs.o bsd/DEVELOPMENT/kern_sig.o; do
+    rm -f "$ROOT/build/xnu/ios-obj/DEVELOPMENT_ARM64_BCM2837/$object"
+  done
+  printf 'v1:%s\n' "$RAM_LAUNCH_OBSERVE" > "$RAM_LAUNCH_STAMP"
+fi
+EXTRA_MAKE_ARGS+=("mac_process.o_CFLAGS_ADD=-DXNU_RAM_LAUNCH_OBSERVE=$RAM_LAUNCH_OBSERVE")
+EXTRA_MAKE_ARGS+=("kpi_vfs.o_CFLAGS_ADD=-DXNU_RAM_LAUNCH_OBSERVE=$RAM_LAUNCH_OBSERVE")
+EXTRA_MAKE_ARGS+=("kern_sig.o_CFLAGS_ADD=-DXNU_RAM_LAUNCH_OBSERVE=$RAM_LAUNCH_OBSERVE")
 if { [ "$RAM_RESTORE_TRUST" != 0 ] && [ "$RAM_RESTORE_TRUST" != 1 ]; } || { [ "$RAM_RESTORE_TRUST" = 1 ] && [ "$RAM_PROGRESS" != 1 ]; }; then
   echo 'XNU_RAM_RESTORE_TRUST must be 0 or 1 and requires the isolated progress profile' >&2
   exit 1
@@ -840,13 +856,14 @@ PY_BINDINGS
   if [ "$RAM_ROOT_PROBE" = 1 ]; then
     RAM_ROOT_ARCHIVE=$ROOT/build/ram-root-probe/libRamRootProbe.a
     test -f "$RAM_ROOT_ARCHIVE"
-    python3 - "$ROOT/build/ram-root-probe/build-report.json" "$RAM_ROOT_ARCHIVE" "$RAM_USER_ENTRY" "$RAM_MAIN_PROBE" "$RAM_PROGRESS" "$RAM_RESTORE_TRUST" <<'PY'
+    python3 - "$ROOT/build/ram-root-probe/build-report.json" "$RAM_ROOT_ARCHIVE" "$RAM_USER_ENTRY" "$RAM_MAIN_PROBE" "$RAM_PROGRESS" "$RAM_RESTORE_TRUST" "$RAM_LAUNCH_OBSERVE" <<'PY'
 import hashlib, json, sys
 from pathlib import Path
 report = json.loads(Path(sys.argv[1]).read_text())
 if (report['user_entry'] != (sys.argv[3] == '1') or report['main_entry'] != (sys.argv[4] == '1') or
         report.get('progress', False) != (sys.argv[5] == '1') or
         report.get('restore_trust', False) != (sys.argv[6] == '1') or
+        report.get('launch_constraints_observer', False) != (sys.argv[7] == '1') or
         report['archive_sha256'] != hashlib.sha256(Path(sys.argv[2]).read_bytes()).hexdigest()):
     raise SystemExit('RAM diagnostic archive/configuration mismatch; rebuild its archive')
 PY
