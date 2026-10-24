@@ -1,0 +1,31 @@
+--- a/bsd/dev/memdev.c
++++ b/bsd/dev/memdev.c
+@@ -730,6 +730,12 @@
+     mdev[id].mdBias = address & 4095;
+     mdev[id].mdByteSize = bytes;
+     mdev[id].mdFlags |= mdRO;
++    /* APFS mode 1 parses s1 as volume index zero and reopens mdN as the
++     * container. A devfs hard link preserves the same bounded read-only
++     * device, sector geometry and lifetime; devfs_remove removes its links.
++     */
++    if (devfs_make_link(mdev[id].mdbdevb, "md%ds1", id) != 0)
++        return (dev_t)-1;
+     return device;
+ }
+ 
+--- a/bsd/vfs/vfs_syscalls.c
++++ b/bsd/vfs/vfs_syscalls.c
+@@ -414,8 +414,12 @@
+     if (!device || !path ||
+         !((!strcmp(device, "/dev/md1") && !strcmp(path, "/mnt1")) ||
+           (!strcmp(device, "/dev/md2") && !strcmp(path, "/mnt2")))) return EINVAL;
++    /* The SPI still admits only the fixed container/path pairs above.
++     * APFS must receive a volume name: bare mdN parses as fsindex -1.
++     */
++    const char *volume_device = !strcmp(device, "/dev/md1") ? "/dev/md1s1" : "/dev/md2s1";
+     struct fuxi_ram_mount_request request = {
+-        .device = device,
++        .device = volume_device,
+         .apfs = { .mount_flags = MNT_RDONLY, .mount_mode = 1, .uid = 99, .gid = 99 }
+     };
+     int error = kernel_mount("apfs", NULLVP, NULLVP, path, &request, sizeof(request),
