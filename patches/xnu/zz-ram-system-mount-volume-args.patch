@@ -1,0 +1,61 @@
+--- a/bsd/vfs/vfs_syscalls.c
++++ b/bsd/vfs/vfs_syscalls.c
+@@ -378,15 +378,45 @@
+ 	return error;
+ }
+ 
++/* iPad7,1 21H461 apfs_vfsop_mount copies 0x144 bytes after fspec.
++ * Mode 0 is a boot-root request; mode 1 mounts an additional volume.
++ * Keep all optional fields zero and retain the original APFS policy checks.
++ */
++struct fuxi_ram_apfs_args {
++    uint32_t mount_flags;
++    uint32_t options;
++    uint16_t mount_mode;
++    uint8_t reserved[0x13c - 10];
++    uint32_t uid;
++    uint32_t gid;
++};
++struct fuxi_ram_mount_request {
++    const char *device;
++    struct fuxi_ram_apfs_args apfs;
++};
++_Static_assert(sizeof(struct fuxi_ram_apfs_args) == 0x144, "21H461 APFS argument size");
++_Static_assert(__builtin_offsetof(struct fuxi_ram_apfs_args, mount_mode) == 8, "APFS mode offset");
++_Static_assert(__builtin_offsetof(struct fuxi_ram_apfs_args, uid) == 0x13c, "APFS uid offset");
++_Static_assert(__builtin_offsetof(struct fuxi_ram_apfs_args, gid) == 0x140, "APFS gid offset");
++_Static_assert(__builtin_offsetof(struct fuxi_ram_mount_request, apfs) == sizeof(char *), "APFS follows fspec");
++
+ int fuxi_ram_mount_ro(const char *, const char *);
+ int
+ fuxi_ram_mount_ro(const char *device, const char *path)
+ {
+     fuxi_ram_mount_reset();
++    /* ARM64 copyin accepts kernel addresses only on a kernel-map thread.
++     * This private SPI is used by the serial, pre-userland bsd_init probe.
++     */
++    if (current_task() != kernel_task) return EPERM;
+     if (!device || !path ||
+         !((!strcmp(device, "/dev/md1") && !strcmp(path, "/mnt1")) ||
+           (!strcmp(device, "/dev/md2") && !strcmp(path, "/mnt2")))) return EINVAL;
+-    int error = kernel_mount("apfs", NULLVP, NULLVP, path, &device, sizeof(device),
++    struct fuxi_ram_mount_request request = {
++        .device = device,
++        .apfs = { .mount_flags = MNT_RDONLY, .mount_mode = 1, .uid = 99, .gid = 99 }
++    };
++    int error = kernel_mount("apfs", NULLVP, NULLVP, path, &request, sizeof(request),
+         MNT_RDONLY | MNT_DONTBROWSE, KERNEL_MOUNT_RAM_SYSTEM, vfs_context_kernel());
+     if (error) panic("RAM_SYSTEM mount failed errno=%d\nat=%s path=%s\ndev=%x opens=%d spec=%x\napfs=%d covered=%x",
+         error, fuxi_ram_mount_diag.stage, path, fuxi_ram_mount_diag.dev,
+@@ -1382,7 +1412,10 @@
+             char **device = (char **)(uintptr_t)fsmountargs;
+             devpath = CAST_USER_ADDR_T(*device);
+             do_copyin_devpath = false;
+-            fsmountargs = USER_ADDR_NULL;
++            /* Pass the fixed, non-root APFS args following the device pointer.
++             * A NULL data argument asks this APFS version to mount a boot root.
++             */
++            fsmountargs += sizeof(*device);
+         }
+ 
+ #if CONFIG_BASESYSTEMROOT
