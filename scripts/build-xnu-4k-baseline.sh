@@ -53,7 +53,7 @@ fi
 # Remove them first so earlier independent patches retain their idempotent checks.
 # Root diagnostics, GPU addon mounts and staged system apps overlap earlier patch context.
 # Reverse newest first; the loop below re-applies them in name order.
-for LATE_PATCH in "$ROOT/patches/xnu/zzzzz-ram-launchd-main.patch" "$ROOT/patches/xnu/zzzz-ram-user-entry.patch" "$ROOT/patches/xnu/zzz-ram-root-probe.patch" \
+for LATE_PATCH in "$ROOT/patches/xnu/zzz-ram-system-iokit.patch" "$ROOT/patches/xnu/zzzzz-ram-launchd-main.patch" "$ROOT/patches/xnu/zzzz-ram-user-entry.patch" "$ROOT/patches/xnu/zzz-ram-root-probe.patch" \
     "$ROOT/patches/xnu/zzz-boot-progress.patch" "$ROOT/patches/xnu/zzy-staged-system-apps.patch" \
     "$ROOT/patches/xnu/zzy-native-gpu-addon-mount.patch"; do
   if git -C .cache/xnu-work apply --reverse --check "$LATE_PATCH" >/dev/null 2>&1; then
@@ -206,6 +206,12 @@ if [ "${XNU_NATIVE_VIRTIO_BLOCK:-0}" = 1 ]; then
   PERSONALITY_CFLAGS="$PERSONALITY_CFLAGS -DXNU_NATIVE_VIRTIO_BLOCK=1"
 fi
 NATIVE_RAM_BLOCK=${XNU_NATIVE_RAM_BLOCK:-0}
+NATIVE_RAM_SYSTEM_BLOCK=${XNU_NATIVE_RAM_SYSTEM_BLOCK:-0}
+case "$NATIVE_RAM_SYSTEM_BLOCK" in 0|1) ;; *) echo 'XNU_NATIVE_RAM_SYSTEM_BLOCK must be 0 or 1' >&2; exit 1 ;; esac
+if [ "$NATIVE_RAM_SYSTEM_BLOCK" = 1 ] && { [ "${XNU_RAM_ROOT_PROBE:-0}" != 1 ] || [ "${XNU_NATIVE_AES:-0}" != 1 ] || [ "${XNU_NATIVE_UFS:-0}" != 0 ] || [ "$NATIVE_RAM_BLOCK" != 0 ] || [ "${XNU_NATIVE_VIRTIO_BLOCK:-0}" != 0 ]; }; then
+  echo 'RAM SystemObjects transport requires the isolated mount-only storage/AES profile' >&2
+  exit 1
+fi
 if [ "$NATIVE_RAM_BLOCK" != 0 ] && [ "$NATIVE_RAM_BLOCK" != 1 ]; then
   echo 'XNU_NATIVE_RAM_BLOCK must be 0 or 1' >&2
   exit 1
@@ -763,6 +769,12 @@ PY_GPU_BROKER
     KERNEL_EXTRA_ARCHIVES="$KERNEL_EXTRA_ARCHIVES -Wl,-force_load,$CONSOLE_ARCHIVE"
     KERNEL_ARCHIVE_DEPENDENCIES="$KERNEL_ARCHIVE_DEPENDENCIES $CONSOLE_ARCHIVE"
   fi
+  if [ "$NATIVE_RAM_SYSTEM_BLOCK" = 1 ]; then
+    SYSTEM_BLOCK_ARCHIVE=$ROOT/build/native-ram-system-block/libNativeRamSystemBlock.a
+    test -f "$SYSTEM_BLOCK_ARCHIVE"
+    KERNEL_EXTRA_ARCHIVES="$KERNEL_EXTRA_ARCHIVES -Wl,-force_load,$SYSTEM_BLOCK_ARCHIVE"
+    KERNEL_ARCHIVE_DEPENDENCIES="$KERNEL_ARCHIVE_DEPENDENCIES $SYSTEM_BLOCK_ARCHIVE"
+  fi
   if [ "$NATIVE_RAM_BLOCK" = 1 ]; then
     RAM_BLOCK_ARCHIVE=$ROOT/build/native-ram-block/libNativeRamBlock.a
     test -f "$RAM_BLOCK_ARCHIVE"
@@ -847,6 +859,7 @@ python3 - "${XNU_NATIVE_AES:-0}" "${XNU_NATIVE_AES_ARCHIVE:-$ROOT/build/native-a
   "${XNU_NATIVE_VIRTIO_BLOCK:-0}" "${XNU_NATIVE_VIRTIO_BLOCK_ARCHIVE:-$ROOT/build/native-virtio-block/libNativeVirtioBlock.a}" \
   "$OWNER_ROOT_PROBE" "${XNU_VERIFIED_ROOT_ARCHIVE:-$ROOT/build/verified-root-xnu/libVerifiedRootProbe.a}" \
   "$NATIVE_RAM_BLOCK" "$ROOT/build/native-ram-block/libNativeRamBlock.a" \
+  "$NATIVE_RAM_SYSTEM_BLOCK" "$ROOT/build/native-ram-system-block/libNativeRamSystemBlock.a" \
   "$ADRENO_FIRMWARE_PROBE" "$ROOT/build/adreno-firmware-probe/libAdrenoFirmwareProbe.a" \
   "$ADRENO_PM4_PROBE" "$ROOT/build/adreno-pm4-probe/libAdrenoPM4Probe.a" \
   "$SMMU4K_PROBE" "$ROOT/build/smmu4k-probe/libArmSmmu4KProbe.a" \

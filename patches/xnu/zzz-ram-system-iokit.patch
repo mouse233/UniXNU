@@ -1,0 +1,30 @@
+--- a/bsd/vfs/vfs_syscalls.c
++++ b/bsd/vfs/vfs_syscalls.c
+@@ -402,6 +402,8 @@
+ _Static_assert(__builtin_offsetof(struct fuxi_ram_mount_request, apfs) == sizeof(char *), "APFS follows fspec");
+ 
+ int fuxi_ram_mount_ro(const char *, const char *);
++extern int fuxi_ram_system_volume(unsigned, char *, size_t) __attribute__((weak_import));
++extern const char *fuxi_ram_system_status(unsigned) __attribute__((weak_import));
+ static const char *fuxi_ram_mount_witness(void);
+ int
+ fuxi_ram_mount_ro(const char *device, const char *path)
+@@ -414,10 +416,14 @@
+     if (!device || !path ||
+         !((!strcmp(device, "/dev/md1") && !strcmp(path, "/mnt1")) ||
+           (!strcmp(device, "/dev/md2") && !strcmp(path, "/mnt2")))) return EINVAL;
+-    /* The SPI still admits only the fixed container/path pairs above.
+-     * APFS must receive a volume name: bare mdN parses as fsindex -1.
+-     */
+-    const char *volume_device = !strcmp(device, "/dev/md1") ? "/dev/md1s1" : "/dev/md2s1";
++    /* Resolve only a genuine APFS volume descended from our verified RAM
++     * transport. Keep the fixed SPI pairs and all original APFS policy checks. */
++    if (!&fuxi_ram_system_volume) return ENXIO;
++    char volume_device[64];
++    unsigned id = !strcmp(device, "/dev/md1") ? 1 : 2;
++    int media_error = fuxi_ram_system_volume(id, volume_device, sizeof(volume_device));
++    if (media_error) panic("RAM_SYSTEM IOKit volume unavailable id=%u errno=%d\n%s", id, media_error,
++        &fuxi_ram_system_status ? fuxi_ram_system_status(id) : "no transport evidence");
+     struct fuxi_ram_mount_request request = {
+         .device = volume_device,
+         .apfs = { .mount_flags = MNT_RDONLY, .mount_mode = 1, .uid = 99, .gid = 99 }

@@ -13,7 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'kits/NativePrelink'))
 import native_prelink as np
 parser = argparse.ArgumentParser(description=__doc__)
-parser.add_argument('--component', choices=['NativeVirtioBlock', 'NativeRamBlock', 'NativeUfs'], default='NativeVirtioBlock')
+parser.add_argument('--component', choices=['NativeVirtioBlock', 'NativeRamBlock', 'NativeRamSystemBlock', 'NativeUfs'], default='NativeVirtioBlock')
 parser.add_argument('--directory', type=Path, default=ROOT / 'build/native-virtio-block')
 parser.add_argument('--allow-static-audit', action='store_true', help='Bring-up only: accept an explicitly static dispatch audit without live metadata qualification')
 args = parser.parse_args()
