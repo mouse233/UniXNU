@@ -1,0 +1,144 @@
+--- a/bsd/vfs/vfs_syscalls.c
++++ b/bsd/vfs/vfs_syscalls.c
+@@ -80,6 +80,7 @@
+ #include <sys/stat.h>
+ #include <sys/vnode_internal.h>
+ #include <sys/mount_internal.h>
++#include <sys/msgbuf.h>
+ #include <sys/proc_internal.h>
+ #include <sys/kauth.h>
+ #include <sys/uio_internal.h>
+@@ -401,6 +402,7 @@
+ _Static_assert(__builtin_offsetof(struct fuxi_ram_mount_request, apfs) == sizeof(char *), "APFS follows fspec");
+ 
+ int fuxi_ram_mount_ro(const char *, const char *);
++static const char *fuxi_ram_mount_witness(void);
+ int
+ fuxi_ram_mount_ro(const char *device, const char *path)
+ {
+@@ -418,11 +420,94 @@
+     };
+     int error = kernel_mount("apfs", NULLVP, NULLVP, path, &request, sizeof(request),
+         MNT_RDONLY | MNT_DONTBROWSE, KERNEL_MOUNT_RAM_SYSTEM, vfs_context_kernel());
+-    if (error) panic("RAM_SYSTEM mount failed errno=%d\nat=%s path=%s\ndev=%x opens=%d spec=%x\napfs=%d covered=%x",
++    if (error) panic("RAM_SYSTEM mount failed errno=%d\nat=%s path=%s\ndev=%x opens=%d spec=%x\napfs=%d covered=%x\n%s",
+         error, fuxi_ram_mount_diag.stage, path, fuxi_ram_mount_diag.dev,
+         fuxi_ram_mount_diag.opens, fuxi_ram_mount_diag.spec,
+-        fuxi_ram_mount_diag.apfs, fuxi_ram_mount_diag.covered);
++        fuxi_ram_mount_diag.apfs, fuxi_ram_mount_diag.covered, fuxi_ram_mount_witness());
+     return error;
++}
++
++/* RAM mount witness: bounded legacy-log tail and vnode_open result.
++ * Logging is left untouched. Only the mounting thread records open results;
++ * other threads can still appear in the shared kernel log tail.
++ */
++extern void bsd_log_lock_safe(void);
++extern void bsd_log_unlock(void);
++static thread_t fuxi_ram_mount_owner;
++static struct {
++    int start, size, open_error;
++    const char *buffer;
++    unsigned opens;
++    char open_path[80], tail[641], text[800];
++} fuxi_ram_mount_evidence;
++
++void fuxi_ram_mount_open_result(const char *, int);
++void
++fuxi_ram_mount_open_result(const char *path, int error)
++{
++    if (os_atomic_load(&fuxi_ram_mount_owner, acquire) != current_thread()) return;
++    fuxi_ram_mount_evidence.opens++;
++    if (error || fuxi_ram_mount_evidence.open_error == -1) {
++        fuxi_ram_mount_evidence.open_error = error;
++        strlcpy(fuxi_ram_mount_evidence.open_path, path ? path : "(null)",
++            sizeof(fuxi_ram_mount_evidence.open_path));
++    }
++}
++
++static void
++fuxi_ram_mount_witness_begin(uint32_t flags)
++{
++    if (!(flags & KERNEL_MOUNT_RAM_SYSTEM)) return;
++    bzero(&fuxi_ram_mount_evidence, sizeof(fuxi_ram_mount_evidence));
++    fuxi_ram_mount_evidence.start = -1;
++    fuxi_ram_mount_evidence.open_error = -1;
++    bsd_log_lock_safe();
++    if (msgbufp && msgbufp->msg_magic == MSG_MAGIC && msgbufp->msg_bufc &&
++        msgbufp->msg_size > 0 && msgbufp->msg_size <= MAX_MSG_BSIZE &&
++        msgbufp->msg_bufx >= 0 && msgbufp->msg_bufx < msgbufp->msg_size) {
++        fuxi_ram_mount_evidence.start = msgbufp->msg_bufx;
++        fuxi_ram_mount_evidence.size = msgbufp->msg_size;
++        fuxi_ram_mount_evidence.buffer = msgbufp->msg_bufc;
++    }
++    bsd_log_unlock();
++    os_atomic_store(&fuxi_ram_mount_owner, current_thread(), release);
++}
++
++static void
++fuxi_ram_mount_witness_end(uint32_t flags)
++{
++    if (!(flags & KERNEL_MOUNT_RAM_SYSTEM)) return;
++    os_atomic_store(&fuxi_ram_mount_owner, NULL, release);
++    bsd_log_lock_safe();
++    if (msgbufp && msgbufp->msg_magic == MSG_MAGIC &&
++        fuxi_ram_mount_evidence.start >= 0 &&
++        msgbufp->msg_size == fuxi_ram_mount_evidence.size &&
++        msgbufp->msg_bufc == fuxi_ram_mount_evidence.buffer &&
++        msgbufp->msg_bufx >= 0 && msgbufp->msg_bufx < msgbufp->msg_size) {
++        unsigned size = (unsigned)msgbufp->msg_size;
++        unsigned end = (unsigned)msgbufp->msg_bufx;
++        unsigned count = (end + size - (unsigned)fuxi_ram_mount_evidence.start) % size;
++        if (count > sizeof(fuxi_ram_mount_evidence.tail) - 1)
++            count = sizeof(fuxi_ram_mount_evidence.tail) - 1;
++        unsigned start = (end + size - count) % size;
++        for (unsigned i = 0; i < count; i++) {
++            unsigned char c = msgbufp->msg_bufc[(start + i) % size];
++            fuxi_ram_mount_evidence.tail[i] = (c == '\n' || c == '\t' || (c >= 32 && c <= 126)) ? c : '.';
++        }
++        fuxi_ram_mount_evidence.tail[count] = 0;
++    }
++    bsd_log_unlock();
++    snprintf(fuxi_ram_mount_evidence.text, sizeof(fuxi_ram_mount_evidence.text),
++        "open=%d count=%u %s\nLOG tail (bounded):\n%s",
++        fuxi_ram_mount_evidence.open_error, fuxi_ram_mount_evidence.opens,
++        fuxi_ram_mount_evidence.open_path,
++        fuxi_ram_mount_evidence.tail[0] ? fuxi_ram_mount_evidence.tail : "(none/unavailable)");
++}
++
++static const char *
++fuxi_ram_mount_witness(void)
++{
++    return fuxi_ram_mount_diag.apfs == -1 ? "APFS not called" : fuxi_ram_mount_evidence.text;
+ }
+ 
+ int
+@@ -1729,7 +1814,9 @@
+ 	} else {
+ 		fuxi_ram_mount_mark(internal_flags, "apfs-mount");
+ 		if (device_vnode) fuxi_ram_mount_device(internal_flags, device_vnode);
++		fuxi_ram_mount_witness_begin(internal_flags);
+ 		error = VFS_MOUNT(mp, device_vnode, fsmountargs, ctx);
++		fuxi_ram_mount_witness_end(internal_flags);
+ 		if (internal_flags & KERNEL_MOUNT_RAM_SYSTEM)
+ 			fuxi_ram_mount_diag.apfs = error;
+ 	}
+--- a/bsd/vfs/vfs_subr.c
++++ b/bsd/vfs/vfs_subr.c
+@@ -7694,6 +7694,8 @@
+ 	return vnode_lookupat(path, flags, vpp, ctx, NULLVP);
+ }
+ 
++extern void fuxi_ram_mount_open_result(const char *, int);
++
+ errno_t
+ vnode_open(const char *path, int fmode, int cmode, int flags, vnode_t *vpp, vfs_context_t ctx)
+ {
+@@ -7736,6 +7738,7 @@
+ 		*vpp = ndp->ni_vp;
+ 	}
+ 
++	fuxi_ram_mount_open_result(path, error);
+ 	kfree_type(struct nameidata, ndp);
+ 	return error;
+ }
