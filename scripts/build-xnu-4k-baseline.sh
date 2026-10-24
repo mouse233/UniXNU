@@ -53,7 +53,7 @@ fi
 # Remove them first so earlier independent patches retain their idempotent checks.
 # Root diagnostics, GPU addon mounts and staged system apps overlap earlier patch context.
 # Reverse newest first; the loop below re-applies them in name order.
-for LATE_PATCH in "$ROOT/patches/xnu/zzz-ram-system-iokit.patch" "$ROOT/patches/xnu/zzzzz-ram-launchd-main.patch" "$ROOT/patches/xnu/zzzz-ram-user-entry.patch" "$ROOT/patches/xnu/zzz-ram-root-probe.patch" \
+for LATE_PATCH in "$ROOT/patches/xnu/zzz-ram-system-iokit.patch" "$ROOT/patches/xnu/zzzzzz-ram-system-probe.patch" "$ROOT/patches/xnu/zzzzz-ram-launchd-main.patch" "$ROOT/patches/xnu/zzzz-ram-user-entry.patch" "$ROOT/patches/xnu/zzz-ram-root-probe.patch" \
     "$ROOT/patches/xnu/zzz-boot-progress.patch" "$ROOT/patches/xnu/zzy-staged-system-apps.patch" \
     "$ROOT/patches/xnu/zzy-native-gpu-addon-mount.patch"; do
   if git -C .cache/xnu-work apply --reverse --check "$LATE_PATCH" >/dev/null 2>&1; then

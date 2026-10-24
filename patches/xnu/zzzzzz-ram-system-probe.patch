@@ -1,0 +1,14 @@
+--- a/bsd/kern/bsd_init.c
++++ b/bsd/kern/bsd_init.c
+@@ -1177,6 +1177,11 @@
+ 		devfs_kernel_mount(mounthere);
+ 	}
+ #endif /* DEVFS */
++#if defined(XNU_RAM_ROOT_PROBE) && XNU_RAM_ROOT_PROBE
++    extern void fuxi_ram_system_probe(void) __attribute__((weak_import));
++    if (&fuxi_ram_system_probe) fuxi_ram_system_probe();
++#endif
++
+ 
+ #if CONFIG_BASESYSTEMROOT
+ #if CONFIG_IMAGEBOOT

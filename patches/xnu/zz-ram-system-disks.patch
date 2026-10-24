@@ -1,0 +1,216 @@
+--- a/bsd/dev/memdev.c
++++ b/bsd/dev/memdev.c
+@@ -159,6 +159,8 @@
+ 
+ struct mdev {
+ 	uint64_t        mdBase;         /* base page number (pages are assumed to be 4K). Multiply by 4096 to find actual address */
++	uint64_t        mdByteSize;     /* exact size for read-only USB RAM slices */
++	uint32_t        mdBias;         /* byte offset within the first 4 KiB page */
+ 	uint32_t        mdSize;         /* size in pages (pages are assumed to be 4K). Multiply by 4096 to find actual size. */
+ 	int                     mdFlags;        /* flags */
+ 	int                     mdSecsize;      /* sector size */
+@@ -173,6 +175,9 @@
+ #define mdRO            0x02    /* This device is read-only */
+ #define mdPhys          0x04    /* This device is in physical memory */
+ 
++static uint64_t mdevbytes(int id) { return mdev[id].mdByteSize ? mdev[id].mdByteSize : ((uint64_t)mdev[id].mdSize << 12); }
++dev_t fuxi_mdev_add_ro(int, uint64_t, uint64_t);
++
+ int mdevBMajor = -1;
+ int mdevCMajor = -1;
+ 
+@@ -222,13 +227,14 @@
+ 	if (!(mdev[devid].mdFlags & mdInited)) {
+ 		return ENXIO;                                 /* Have we actually been defined yet? */
+ 	}
++	if (uio_rw(uio) == UIO_WRITE && (mdev[devid].mdFlags & mdRO)) return EROFS;
+ 	if (uio->uio_offset < 0) {
+ 		return EINVAL;  /* invalid offset */
+ 	}
+ 	if (uio_resid(uio) < 0) {
+ 		return EINVAL;
+ 	}
+-	mdata = ((addr64_t)mdev[devid].mdBase << 12) + uio->uio_offset; /* Point to the area in "file" */
++	mdata = ((addr64_t)mdev[devid].mdBase << 12) + mdev[devid].mdBias + uio->uio_offset; /* Point to the area in "file" */
+ 
+ 	saveflag = uio->uio_segflg;                                                     /* Remember what the request is */
+ 	/* Make sure we are moving from physical ram if physical device */
+@@ -242,10 +248,10 @@
+ 		}
+ 	}
+ 
+-	if (uio->uio_offset > (mdev[devid].mdSize << 12)) {
++	if (uio->uio_offset > mdevbytes(devid)) {
+ 		count = 0;
+ 	} else {
+-		count = imin(uio_resid(uio), (mdev[devid].mdSize << 12) - uio->uio_offset);
++		count = (int)MIN((uint64_t)INT_MAX, MIN((uint64_t)uio_resid(uio), mdevbytes(devid) - (uint64_t)uio->uio_offset));
+ 	}
+ 
+ 	status = uiomove64(mdata, count, uio);     /* Move the data */
+@@ -265,6 +271,8 @@
+ 
+ 	devid = minor(buf_device(bp));                                                  /* Get minor device number */
+ 
++	if (devid < 0 || devid >= NB_MAX_MDEVICES) { buf_seterror(bp, ENXIO); buf_biodone(bp); return; }
++	if (!(buf_flags(bp) & B_READ) && (mdev[devid].mdFlags & mdRO)) { buf_seterror(bp, EROFS); buf_biodone(bp); return; }
+ 	if ((mdev[devid].mdFlags & mdInited) == 0) {            /* Have we actually been defined yet? */
+ 		buf_seterror(bp, ENXIO);
+ 		buf_biodone(bp);
+@@ -273,23 +281,24 @@
+ 
+ 	buf_setresid(bp, buf_count(bp));                                                /* Set byte count */
+ 
+-	blkoff = buf_blkno(bp) * mdev[devid].mdSecsize;         /* Get offset into file */
++	if (buf_blkno(bp) < 0 || (uint64_t)buf_blkno(bp) > UINT64_MAX / (unsigned)mdev[devid].mdSecsize) { buf_seterror(bp, EINVAL); buf_biodone(bp); return; }
++	blkoff = (uint64_t)buf_blkno(bp) * (unsigned)mdev[devid].mdSecsize;         /* Get offset into file */
+ 
+ /*
+  *	Note that reading past end is an error, but reading at end is an EOF.  For these
+  *	we just return with resid == count.
+  */
+ 
+-	if (blkoff >= (mdev[devid].mdSize << 12)) {                     /* Are they trying to read/write at/after end? */
+-		if (blkoff != (mdev[devid].mdSize << 12)) {              /* Are we trying to read after EOF? */
++	if (blkoff >= mdevbytes(devid)) {                     /* Are they trying to read/write at/after end? */
++		if (blkoff != mdevbytes(devid)) {              /* Are we trying to read after EOF? */
+ 			buf_seterror(bp, EINVAL);                                               /* Yeah, this is an error */
+ 		}
+ 		buf_biodone(bp);                                                                /* Return */
+ 		return;
+ 	}
+ 
+-	if ((blkoff + buf_count(bp)) > (mdev[devid].mdSize << 12)) {            /* Will this read go past end? */
+-		buf_setcount(bp, (uint32_t)((mdev[devid].mdSize << 12) - blkoff));  /* Yes, trim to max */
++	if ((uint64_t)buf_count(bp) > mdevbytes(devid) - blkoff) {            /* Will this read go past end? */
++		buf_setcount(bp, (uint32_t)(mdevbytes(devid) - blkoff));  /* Yes, trim to max */
+ 	}
+ 	/*
+ 	 * make sure the buffer's data area is
+@@ -299,7 +308,7 @@
+ 		panic("ramstrategy: buf_map failed");
+ 	}
+ 
+-	fvaddr = (mdev[devid].mdBase << 12) + blkoff;           /* Point to offset into ram disk */
++	fvaddr = (mdev[devid].mdBase << 12) + mdev[devid].mdBias + blkoff;           /* Point to offset into ram disk */
+ 
+ 	if (buf_flags(bp) & B_READ) {                                   /* Is this a read? */
+ 		if (!(mdev[devid].mdFlags & mdPhys)) {                   /* Physical mapped disk? */
+@@ -427,14 +436,14 @@
+ 		break;
+ 
+ 	case DKIOCISWRITABLE:
+-		*f = 1;
++		*f = !(mdev[devid].mdFlags & mdRO);
+ 		break;
+ 
+ 	case DKIOCGETBLOCKCOUNT:
+ 		if (!(mdev[devid].mdFlags & mdInited)) {
+ 			return ENXIO;
+ 		}
+-		*o = ((mdev[devid].mdSize << 12) + mdev[devid].mdSecsize - 1) / mdev[devid].mdSecsize;
++		*o = (mdevbytes(devid) + mdev[devid].mdSecsize - 1) / mdev[devid].mdSecsize;
+ 		break;
+ 
+ 	/*
+@@ -445,6 +454,7 @@
+ 	 *   What is your size?
+ 	 */
+ 	case DKIOCGETMEMDEVINFO:
++		if (mdev[devid].mdByteSize) return ENOTTY; /* biased slices use ordinary bounded I/O */
+ 		if (!(mdev[devid].mdFlags & mdInited)) {
+ 			return ENXIO;
+ 		}
+@@ -695,6 +705,8 @@
+ 		return -1;                                                                              /* Nope... */
+ 	}
+ 
++	mdev[devid].mdByteSize = 0;
++	mdev[devid].mdBias = 0;
+ 	mdev[devid].mdBase = base;                                                      /* Set the base address of ram disk */
+ 	mdev[devid].mdSize = size;                                                      /* Set the length of the ram disk */
+ 	mdev[devid].mdSecsize = DEV_BSIZE;                                      /* Set starting block size */
+@@ -709,6 +721,20 @@
+ 
+ 
+ dev_t
++fuxi_mdev_add_ro(int id, uint64_t address, uint64_t bytes)
++{
++    if (id < 1 || id > 2 || !bytes || (bytes & 511) || (address & 511) || address > UINT64_MAX - bytes ||
++        mdevlookup(id) != (dev_t)-1 || bytes > ((uint64_t)UINT_MAX << 12) - 4096) return (dev_t)-1;
++    dev_t device = mdevadd(id, address >> 12, (unsigned int)((bytes + (address & 4095) + 4095) >> 12), 0);
++    if (device == (dev_t)-1) return device;
++    mdev[id].mdBias = address & 4095;
++    mdev[id].mdByteSize = bytes;
++    mdev[id].mdFlags |= mdRO;
++    return device;
++}
++
++
++dev_t
+ mdevlookup(int devid)
+ {
+ 	if ((devid < 0) || (devid >= NB_MAX_MDEVICES)) {
+@@ -732,6 +758,8 @@
+ 		devfs_remove(mdev[i].mdbdevb);                  /* Remove the block device */
+ 		devfs_remove(mdev[i].mdcdevb);                  /* Remove the character device */
+ 
++		mdev[i].mdByteSize = 0;
++		mdev[i].mdBias = 0;
+ 		mdev[i].mdBase = 0;                             /* Clear the mdev's storage */
+ 		mdev[i].mdSize = 0;
+ 		mdev[i].mdSecsize = 0;
+@@ -759,8 +787,8 @@
+ 		return -1;
+ 	}
+ 
+-	*base = mdev[devid].mdBase << 12;
+-	*size = mdev[devid].mdSize << 12;
++	*base = (mdev[devid].mdBase << 12) + mdev[devid].mdBias;
++	*size = mdevbytes(devid);
+ 
+ 	/* make sure (base, size) is a valid range and will not overflow */
+ 	assert(*size < (UINT64_MAX - *base));
+--- a/bsd/sys/mount_internal.h
++++ b/bsd/sys/mount_internal.h
+@@ -487,6 +487,7 @@
+ #define KERNEL_MOUNT_BASESYSTEMROOT     0x80 /* mount a base root volume "instead of" the full root volume (only used during bsd_init) */
+ #define KERNEL_MOUNT_DEVFS             0x100 /* kernel startup mount of devfs */
+ #define KERNEL_MOUNT_FMOUNT            0x200 /* is fmount() system call */
++#define KERNEL_MOUNT_RAM_SYSTEM        0x800 /* internal read-only RAM diagnostic */
+ #define KERNEL_MOUNT_KMOUNT            0x400 /* is kernel_mount() call */
+ 
+ /* mask for checking if any of the "mount volume by role" flags are set */
+--- a/bsd/vfs/vfs_syscalls.c
++++ b/bsd/vfs/vfs_syscalls.c
+@@ -342,6 +342,15 @@
+ 	return error;
+ }
+ 
++int fuxi_ram_mount_ro(const char *, const char *);
++int
++fuxi_ram_mount_ro(const char *device, const char *path)
++{
++    if (!device || !path || (strcmp(path, "/mnt1") && strcmp(path, "/mnt2"))) return EINVAL;
++    return kernel_mount("apfs", NULLVP, NULLVP, path, &device, sizeof(device),
++        MNT_RDONLY | MNT_DONTBROWSE, KERNEL_MOUNT_RAM_SYSTEM, vfs_context_kernel());
++}
++
+ int
+ vfs_mount_at_path(const char *fstype, const char *path,
+     vnode_t pvp, vnode_t vp, void *data, size_t datalen,
+@@ -1312,6 +1321,14 @@
+ 	if (vfsp->vfc_vfsflags & VFC_VFSLOCALARGS &&
+ 	    !(internal_flags & (KERNEL_MOUNT_SNAPSHOT | KERNEL_MOUNT_VOLBYROLE_MASK))) {
+ 		boolean_t do_copyin_devpath = true;
++        if (internal_flags & KERNEL_MOUNT_RAM_SYSTEM) {
++            if (strcmp(fstypename, "apfs") || !(flags & MNT_RDONLY)) { error = EINVAL; goto out1; }
++            char **device = (char **)(uintptr_t)fsmountargs;
++            devpath = CAST_USER_ADDR_T(*device);
++            do_copyin_devpath = false;
++            fsmountargs = USER_ADDR_NULL;
++        }
++
+ #if CONFIG_BASESYSTEMROOT
+ 		if (internal_flags & KERNEL_MOUNT_BASESYSTEMROOT) {
+ 			// KERNEL_MOUNT_BASESYSTEMROOT implies subtle behavior worh nothing:

@@ -158,6 +158,8 @@ def build(ctx, kernel=None):
         command.append('--packed-data-ramdisk' if adt.get('packed_data_ramdisk') else '--data-ramdisk')
     if trust:
         command.append('--trust-cache')
+    if adt.get('ram_system_objects'):
+        command.append('--ram-system-objects')
     if addon:
         command.append('--gpu-addon')
     if adt.get('ipad_identity'):
