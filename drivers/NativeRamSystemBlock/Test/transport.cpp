@@ -21,8 +21,11 @@ int main() {
     bootEnabled=false;assert(!disk.configure(1,gPhysBase,bytes));bootEnabled=true;
     assert(!disk.configure(0,gPhysBase,bytes));assert(!disk.configure(3,gPhysBase,bytes));
     { NativeRamSystemBlock profile2; bootProfile=2;
-      assert(profile2.configure(1,gPhysBase,bytes)); bootProfile=3;
-      assert(!profile2.configure(1,gPhysBase,bytes)); }
+      assert(profile2.configure(1,gPhysBase,bytes)); }
+    // Refusal must be tested on a fresh object, otherwise the already-configured
+    // guard would mask a broken profile gate.
+    { NativeRamSystemBlock profile3; bootProfile=3;
+      assert(!profile3.configure(1,gPhysBase,bytes)); }
     bootProfile=1;
     assert(!disk.configure(1,gPhysBase-512,bytes));assert(!disk.configure(1,gPhysBase+512,bytes));
     assert(!disk.configure(1,gPhysBase,bytes+512));assert(!disk.configure(1,gPhysBase,bytes-1));

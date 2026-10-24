@@ -27,11 +27,15 @@
  			/* wake up the new exec thread */
  			task_clear_return_wait(get_threadtask(imgp->ip_new_thread), clearwait_flags);
  			thread_deallocate(imgp->ip_new_thread);
-@@ -7971,7 +7977,12 @@
+@@ -7971,7 +7977,16 @@
  	 */
  	set_security_token(p, proc_ucred_unsafe(p));
  
 -	return execve(p, &init_exec_args, retval);
++#if defined(XNU_RAM_USER_ENTRY) && XNU_RAM_USER_ENTRY
++	extern void fuxi_ram_user_exec_begin(const char *, int);
++	fuxi_ram_user_exec_begin(path, proc_getpid(p));
++#endif
 +	error = execve(p, &init_exec_args, retval);
 +#if defined(XNU_RAM_USER_ENTRY) && XNU_RAM_USER_ENTRY
 +	extern void fuxi_ram_user_exec_result(int, const char *, int);
