@@ -36,6 +36,7 @@ struct OSNumber : OSObject {
 inline std::vector<OSObject *> registry;
 inline unsigned slept=0,registered=0;
 inline bool iteratorValid=true,bootEnabled=true,attachOK=true,startOK=true;
+inline unsigned bootProfile=1;
 struct OSIterator : OSObject {
     size_t at=0;
     OSObject *getNextObject() { return at<registry.size()?registry[at++]:nullptr; }
@@ -105,5 +106,5 @@ struct IOBlockStorageDevice : IOService {
 #define kIOBSDMinorKey "BSD Minor"
 #define makedev(a,b) (((a)<<24)|(b))
 inline uintptr_t ml_static_ptovirt(uint64_t p) { return p; }
-inline bool PE_parse_boot_argn(const char *,unsigned *p,size_t) { *p=bootEnabled?1:0;return true; }
+inline bool PE_parse_boot_argn(const char *,unsigned *p,size_t) { *p=bootEnabled?bootProfile:0;return true; }
 inline void IOSleep(unsigned n) { slept+=n; }

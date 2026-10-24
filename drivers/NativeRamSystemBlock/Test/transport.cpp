@@ -20,6 +20,9 @@ int main() {
     assert(disk.doAsyncReadWrite(&buffer,0,1,nullptr,&completion)==kIOReturnNotReady);
     bootEnabled=false;assert(!disk.configure(1,gPhysBase,bytes));bootEnabled=true;
     assert(!disk.configure(0,gPhysBase,bytes));assert(!disk.configure(3,gPhysBase,bytes));
+    bootProfile=2;assert(disk.configure(1,gPhysBase,bytes));
+    bootProfile=3;assert(!disk.configure(1,gPhysBase,bytes));
+    bootProfile=1;
     assert(!disk.configure(1,gPhysBase-512,bytes));assert(!disk.configure(1,gPhysBase+512,bytes));
     assert(!disk.configure(1,gPhysBase,bytes+512));assert(!disk.configure(1,gPhysBase,bytes-1));
     assert(!disk.configure(1,gPhysBase+1,bytes-512));assert(!disk.configure(1,gPhysBase,0));

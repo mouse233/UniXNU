@@ -28,7 +28,10 @@ class NativeRamSystemBlock : public IOBlockStorageDevice {
 public:
     bool configure(unsigned id, uint64_t physical, uint64_t size) {
         unsigned enabled=0;
-        if (!PE_parse_boot_argn("ram-system-probe", &enabled, sizeof(enabled)) || enabled!=1 ||
+        // Profiles 1 and 2 share this read-only transport; profile 2 only
+        // continues past the mounts in the serial probe.
+        if (!PE_parse_boot_argn("ram-system-probe", &enabled, sizeof(enabled)) ||
+            (enabled!=1 && enabled!=2) ||
             memory || id<1 || id>2 || !size || (physical&511) || (size&511) ||
             physical<gPhysBase || size>gPhysSize || physical-gPhysBase>gPhysSize-size) return false;
         memory=reinterpret_cast<const uint8_t *>(ml_static_ptovirt(physical));
