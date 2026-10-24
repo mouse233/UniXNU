@@ -5,10 +5,14 @@
  	}
  #endif /* DEVFS */
 +#if defined(XNU_RAM_ROOT_PROBE) && XNU_RAM_ROOT_PROBE
-+    extern void fuxi_ram_system_probe(void) __attribute__((weak_import));
++    extern void fuxi_ram_system_probe(void) __attribute__((weak_import))
++#if !defined(XNU_RAM_USER_ENTRY) || !XNU_RAM_USER_ENTRY
++        __attribute__((noreturn))
++#endif
++        ;
 +    if (&fuxi_ram_system_probe) fuxi_ram_system_probe();
 +#endif
-+
- 
+
+
  #if CONFIG_BASESYSTEMROOT
  #if CONFIG_IMAGEBOOT

@@ -1,0 +1,26 @@
+--- a/bsd/kern/kern_exec.c
++++ b/bsd/kern/kern_exec.c
+@@ -8070,6 +8070,23 @@
+ 	}
+ #endif
+
++#if defined(XNU_RAM_ROOT_PROBE) && XNU_RAM_ROOT_PROBE \
++    && defined(XNU_RAM_USER_ENTRY) && XNU_RAM_USER_ENTRY
++	{
++		extern int fuxi_ram_system_user_init_path(const char **) __attribute__((weak_import));
++		const char *system_init = NULL;
++		if (&fuxi_ram_system_user_init_path && !fuxi_ram_system_user_init_path(&system_init)
++		    && system_init) {
++			printf("load_init_program: attempting to load %s\n", system_init);
++			error = load_init_program_at_path(p, (user_addr_t)scratch_addr, system_init, init_envp);
++			if (!error) {
++				return;
++			}
++			panic("RAM_SYSTEM_USER launchd exec failed, errno %d", error);
++		}
++	}
++#endif
++
+ #if DEBUG || DEVELOPMENT
+ 	/* Check for boot-arg suffix first */
+ 	char launchd_suffix[64];
