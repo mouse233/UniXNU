@@ -33,9 +33,9 @@
  
  	code = arm_get_syscall_number(state);
 +#if defined(XNU_RAM_MAIN_PROBE) && XNU_RAM_MAIN_PROBE
-+	extern void fuxi_ram_progress_unix(unsigned, uint64_t, uint64_t);
++	extern uint64_t fuxi_ram_progress_unix(unsigned, uint64_t, uint64_t);
 +	unsigned ram_arg_offset = get_saved_state_reg(state, ARM64_SYSCALL_CODE_REG_NUM) == 0 ? 1 : 0;
-+	fuxi_ram_progress_unix(code, get_saved_state_reg(state, ram_arg_offset), get_saved_state_reg(state, ram_arg_offset + 1));
++	uint64_t ram_trace_token = fuxi_ram_progress_unix(code, get_saved_state_reg(state, ram_arg_offset), get_saved_state_reg(state, ram_arg_offset + 1));
 +#endif
  
  #define unix_syscall_kprintf(x...)      /* kprintf("unix_syscall: " x) */
@@ -47,8 +47,8 @@
 +
 +#if defined(XNU_RAM_MAIN_PROBE) && XNU_RAM_MAIN_PROBE
 +	{
-+	extern void fuxi_ram_progress_unix_result(unsigned, int, int);
-+	fuxi_ram_progress_unix_result(code, error, uthread->uu_rval[0]);
++	extern void fuxi_ram_progress_unix_result(uint64_t, unsigned, int, int);
++	fuxi_ram_progress_unix_result(ram_trace_token, code, error, uthread->uu_rval[0]);
 +	}
 +#endif
  

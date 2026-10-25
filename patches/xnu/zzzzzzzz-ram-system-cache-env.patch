@@ -1,0 +1,14 @@
+--- a/bsd/kern/kern_exec.c
++++ b/bsd/kern/kern_exec.c
+@@ -8086,6 +8086,11 @@
+ 		return;
+ 	}
+ #endif
++
++#if defined(XNU_RAM_ROOT_PROBE) && XNU_RAM_ROOT_PROBE && defined(XNU_RAM_USER_ENTRY) && XNU_RAM_USER_ENTRY
++	extern void fuxi_ram_system_cache_prepare(proc_t, user_addr_t, user_addr_t *) __attribute__((weak_import));
++	if (&fuxi_ram_system_cache_prepare) fuxi_ram_system_cache_prepare(p, (user_addr_t)scratch_addr, &init_envp);
++#endif
+ 
+ #if defined(XNU_RAM_ROOT_PROBE) && XNU_RAM_ROOT_PROBE \
+     && defined(XNU_RAM_USER_ENTRY) && XNU_RAM_USER_ENTRY
