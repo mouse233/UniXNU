@@ -12,7 +12,14 @@
  		extern void fuxi_ram_user_svc(uint64_t, uint32_t, uint32_t, uint64_t) __attribute__((noreturn));
  		fuxi_ram_user_svc(get_saved_state_pc(state), get_saved_state_cpsr(state), esr, get_saved_state_reg(state, 16));
  #endif
-@@ -857,6 +860,13 @@
+@@ -852,9 +855,20 @@
+ 		} else {
++#if defined(XNU_RAM_MAIN_PROBE) && XNU_RAM_MAIN_PROBE
++		extern void fuxi_ram_progress_fault(uint64_t, uint32_t, uint32_t, uint64_t);
++		fuxi_ram_progress_fault(get_saved_state_pc(state), get_saved_state_cpsr(state), esr, far);
++#endif
+ 			handle_breakpoint(state, esr);
+ 			__builtin_unreachable();
  		}
  
  	case ESR_EC_BKPT_REG_MATCH_EL0:
