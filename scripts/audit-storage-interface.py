@@ -12,10 +12,10 @@ import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 parser = argparse.ArgumentParser(description=__doc__)
-parser.add_argument('--candidate', type=Path, default=ROOT / 'build/native-prelink/native-apfs-load-positive.macho')
+parser.add_argument('--candidate', type=Path, default=ROOT / 'build/xnu-prelink/native-apfs-load-positive.macho')
 parser.add_argument('--static-only', action='store_true', help='Audit compiled dispatch and original instructions only; no claim about live metadata or translation')
 args = parser.parse_args()
-sys.path.insert(0, str(ROOT / 'kits/NativePrelink'))
+sys.path.insert(0, str(ROOT / 'kits/XnuPrelink'))
 import native_prelink as np
 source = ROOT / 'refer/IOStorageFamily'
 revision = subprocess.check_output(['git', '-C', source, 'rev-parse', 'HEAD'], text=True).strip()

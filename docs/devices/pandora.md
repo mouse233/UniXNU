@@ -1,23 +1,20 @@
 # Xiaomi 17 Pro (pandora)
 
-pandora is the Xiaomi 17 Pro with the SM8850 SoC. The port below is an independent community project. The UniXNU organization does not maintain it. It runs the iPhone X iOS 16.7.16 userland on an xnu-8796 kernel built from the ios-sweet patch series. A small loader started by `fastboot boot` replaces the UEFI boot chain. The kernel uses the UniXNU native 4 KiB patches, and the original Apple kexts are prelinked with NativePrelink.
+A community-maintained port for SM8850. Current results are based on the maintainer records at the revisions linked below.
 
-| Repository | Maintainer | State |
-| --- | --- | --- |
-| [ios-pandora](https://github.com/ShueiTsuki/ios-pandora) | [ShueiTsuki](https://github.com/ShueiTsuki) | iOS 16.7.16 lock screen with touch and buttons on hardware |
+| Repository | Maintainer |
+| --- | --- |
+| [data-a-live](https://github.com/ShueiTsuki/data-a-live) | [ShueiTsuki](https://github.com/ShueiTsuki) |
 
 ## State
 
-| Stage | State |
-| --- | --- |
-| Boot | `fastboot boot` of a loader image that carries the kernel, the ADT and the payload; Android and every partition stay unchanged |
-| CPU | 8 cores, 4 KiB pages |
-| Storage | native UFS driver; the root file system is a pinned file in the Android userdata partition, read and written through its extents, without a wipe |
-| Display | 1220x2656 panel through the bootloader framebuffer; brightness through DSI DCS |
-| Input | Synaptics touch over GPI DMA; power and volume buttons |
-| Userland | iOS 16.7.16 (20H392) lock screen; wallpaper and widgets missing |
-| Original kexts | AMFI and its dependencies prelinked with NativePrelink; QEMU and hardware runs in progress |
-| GPU, audio, camera | not available |
+The device reaches the iOS 16.7 home screen and runs apps with touch, power/volume keys and brightness control. All eight CPUs run, with load-based frequency changes, idle sleep and thermal throttling recorded.
+
+The maintainer records GPU composition of the system UI through Adreno 840, Turnip Vulkan and the Metal translation layer. The panel scans out the rendered buffers directly; the reported animation rate is about 110 frames/s on a 120 Hz panel. Audio DSP startup and communication work; speaker playback, real battery reporting, Wi-Fi, cellular and camera support remain pending.
+
+## Sources
+
+- [README: ShueiTsuki/data-a-live](https://github.com/ShueiTsuki/data-a-live/blob/91f1f2468f30841c39123c7ba20ae520ecd82c84/README.md)
 
 ## Build
 
@@ -30,6 +27,9 @@ KERNEL=<out> tools/boot_ios.sh --file /data/local/tmp/iosroot.img --run <N> --rd
 
 `tools/boot_ios.sh` resolves the extents of the pinned root file, builds the payload and the loader image, and starts it with `fastboot boot`. The kernel, the kernelcache, the root image and the trust caches are external inputs and are not stored in the repository.
 
-## Maintenance
+## Use this port
 
-The maintainer owns the repository and its release decisions. UniXNU documentation lists the port and its state; it does not take over maintenance.
+1. Read the repository build instructions and pinned records. Prepare its firmware, system images and board inputs.
+2. Build with that repository's commands. Use [Build and boot](/building) for common configuration.
+3. Follow the [bring-up order](/porting/bring-up) and save results through [log capture](/porting/log-capture).
+4. Update the [porting record](/porting/records) with the source revisions and last confirmed stage.
