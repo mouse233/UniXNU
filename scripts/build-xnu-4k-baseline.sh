@@ -165,7 +165,14 @@ fi
 # records are also reused by strict archive builders, which need that include
 # directory even before the iOS build exports its own headers.
 mkdir -p "$ROOT/build/xnu/ios-obj/EXPORT_HDRS/libsa"
-ditto "$ROOT/build/xnu/obj/EXPORT_HDRS/libsa" "$ROOT/build/xnu/ios-obj/EXPORT_HDRS/libsa"
+python3 - "$ROOT/build/xnu" <<'COPY_LIBSA_HEADERS'
+from pathlib import Path
+import shutil
+import sys
+root = Path(sys.argv[1])
+shutil.copytree(root / 'obj/EXPORT_HDRS/libsa', root / 'ios-obj/EXPORT_HDRS/libsa',
+                symlinks=True, dirs_exist_ok=True)
+COPY_LIBSA_HEADERS
 if [ ! -f "$KERNEL_SDKROOT/usr/local/lib/kernel/libfirehose_kernel.a" ]; then
   bash scripts/build-firehose.sh
 fi

@@ -38,6 +38,11 @@ while [ $# -gt 0 ]; do
                 if [ -x "${d}/${tool}" ]; then echo "${d}/${tool}"; exit 0; fi
             done
             if p=$(command -v "${tool}" 2>/dev/null); then echo "${p}"; exit 0; fi
+
+            # Experimental ABI audits use Apple's name for the LLVM DWARF tool.
+            if [ "${tool}" = dwarfdump ] && p=$(command -v llvm-dwarfdump 2>/dev/null); then
+                echo "${p}"; exit 0
+            fi
             [ "${verbose}" = 1 ] && echo "xcrun: cannot find ${tool}" >&2
             exit 1
             ;;
@@ -63,4 +68,7 @@ tool="$1"; shift
 for d in ${XNU_TOOLCHAIN_BIN}; do
     [ -x "${d}/${tool}" ] && exec "${d}/${tool}" "$@"
 done
+if [ "${tool}" = dwarfdump ] && ! command -v dwarfdump >/dev/null 2>&1; then
+    exec llvm-dwarfdump "$@"
+fi
 exec "${tool}" "$@"
