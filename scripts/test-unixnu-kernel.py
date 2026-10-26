@@ -23,7 +23,7 @@ class KernelBootstrapTests(unittest.TestCase):
         startup.with_suffix('.o.json').write_text('{}')
         self.objects = [startup, startup.with_name('arm_init.o')]
         (objects / 'link.filelist').write_text(''.join(str(p) + '\n' for p in self.objects))
-        self.ctx = SimpleNamespace(tree=root, jobs=2, logs=root / 'logs', need_config=lambda: {})
+        self.ctx = SimpleNamespace(tree=root, schema_version=1, jobs=2, logs=root / 'logs', need_config=lambda: {})
 
     def invoke(self, run, archives):
         with patch.object(kernel, 'tool'), patch.object(kernel, 'run', side_effect=run), \
