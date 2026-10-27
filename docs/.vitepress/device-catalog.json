@@ -385,6 +385,11 @@
     "title_zh": "Microsoft Lumia 950"
   },
   {
+    "name": "lumia950-twisstedtoast",
+    "title": "Microsoft Lumia 950 — P1 build research (TwisstedToast)",
+    "title_zh": "Microsoft Lumia 950 — P1 build research (TwisstedToast)"
+  },
+  {
     "name": "luming",
     "title": "Xiaomi Civi 5 Pro (luming)",
     "title_zh": "小米 Civi 5 Pro（luming）"
@@ -648,6 +653,11 @@
     "name": "sirius",
     "title": "Xiaomi Mi 8 SE (sirius)",
     "title_zh": "小米 8 SE（sirius）"
+  },
+  {
+    "name": "sirius-yooglery",
+    "title": "Xiaomi Mi 8 SE (Yooglery)",
+    "title_zh": "Xiaomi Mi 8 SE (Yooglery)"
   },
   {
     "name": "sm-t733",
