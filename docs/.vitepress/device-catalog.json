@@ -295,6 +295,11 @@
     "title_zh": "Redmi K40 Pro（haydn）"
   },
   {
+    "name": "haydn-iamojz",
+    "title": "Xiaomi Redmi K40 Pro / K40 Pro+ / Mi 11i (haydn), SM8350 (iamOJZ)",
+    "title_zh": "Xiaomi Redmi K40 Pro / K40 Pro+ / Mi 11i (haydn), SM8350 (iamOJZ)"
+  },
+  {
     "name": "haydn-xiaomi-haydn-dev",
     "title": "Xiaomi K40 Pro (xiaomi-haydn-dev)",
     "title_zh": "Xiaomi K40 Pro (xiaomi-haydn-dev)"
@@ -425,9 +430,24 @@
     "title_zh": "Redmi Note 9（merlinx）"
   },
   {
+    "name": "mh2lm",
+    "title": "LG G8X ThinQ (LM-G850, mh2lm)",
+    "title_zh": "LG G8X ThinQ (LM-G850, mh2lm)"
+  },
+  {
     "name": "mondrian",
     "title": "Redmi K60 (mondrian/SM8475): UniXNU UEFI bring-up",
     "title_zh": "Redmi K60 (mondrian/SM8475): UniXNU UEFI bring-up"
+  },
+  {
+    "name": "mondrian-wohusaixing",
+    "title": "Redmi K60 (mondrian/SM8475): UniXNU UEFI bring-up (wohusaixing)",
+    "title_zh": "Redmi K60 (mondrian/SM8475): UniXNU UEFI bring-up (wohusaixing)"
+  },
+  {
+    "name": "munch",
+    "title": "Xiaomi Redmi K40S (munch, 22021211RC)",
+    "title_zh": "Xiaomi Redmi K40S (munch, 22021211RC)"
   },
   {
     "name": "myron",
@@ -805,6 +825,11 @@
     "title_zh": "Redmi K70（vermeer）"
   },
   {
+    "name": "vermeer-ahzcpp",
+    "title": "Redmi K70 (ahzcpp)",
+    "title_zh": "Redmi K70 (ahzcpp)"
+  },
+  {
     "name": "vermeer-xyyyds0106",
     "title": "Redmi K70 (xyyyds0106)",
     "title_zh": "Redmi K70 (xyyyds0106)"
@@ -813,6 +838,11 @@
     "name": "vermeer-yyx2025",
     "title": "Redmi K70 (yyx2025)",
     "title_zh": "Redmi K70 (yyx2025)"
+  },
+  {
+    "name": "wayne",
+    "title": "Xiaomi Mi 6X (2018)",
+    "title_zh": "Xiaomi Mi 6X (2018)"
   },
   {
     "name": "x9",
